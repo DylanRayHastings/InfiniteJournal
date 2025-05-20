@@ -5,7 +5,7 @@ Displays and allows switching between tools.
 Currently text-based but designed for easy extension to graphical toolbars.
 """
 
-from core.services import ToolService
+from services.tools import ToolService
 from core.interfaces import Renderer
 from core.events import EventBus
 

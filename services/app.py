@@ -1,97 +1,17 @@
 """
-Domain services and App orchestration.
+Main application class: event loop, rendering, input handling.
 """
-"""
-from typing import List, Any, Tuple
-import pygame
-from core.models import Page, Point
-from core.interfaces import Engine, Clock, InputAdapter, Renderer
-from core.events import EventBus
 
+from typing import List, Any
+import pygame
 import logging
 from icecream import ic
 from debug import *
 
-if DEBUG:
-    ic.configureOutput(prefix='[services] ')
-    logging.getLogger().setLevel(logging.DEBUG)
-
-class JournalService:
-    def __init__(self, bus: EventBus):
-        self._bus = bus
-        self._page = Page()
-        self._current = None
-        logging.info("JournalService initialized")
-
-    def start_stroke(self, x: int, y: int, width: int, color: Tuple[int, int, int]):
-        try:
-            self._current = self._page.new_stroke(color)
-            if DEBUG: ic(x, y, width, color)
-            self.add_point(x, y, width)
-        except Exception as e:
-            logging.exception("Failed to start stroke")
-            raise
-
-    def add_point(self, x: int, y: int, width: int):
-        if self._current is None:
-            logging.error("Attempted to add point without active stroke")
-            raise RuntimeError("start_stroke must be called before add_point")
-        try:
-            self._current.add_point(Point(x, y, width))
-            self._bus.publish('stroke_added', None)
-            if DEBUG and VERBOSE_DEBUG: ic(f"Point added: ({x}, {y}, width={width})")
-        except Exception as e:
-            logging.exception("Failed to add point")
-            raise
-
-    def end_stroke(self):
-        self._current = None
-        self._bus.publish('stroke_ended', None)
-        if DEBUG: ic("Stroke ended")
-
-    def render(self, renderer: Renderer):
-        try:
-            for stroke in self._page.strokes:
-                color = stroke.color() if callable(stroke.color) else stroke.color
-                if DEBUG and VERBOSE_DEBUG: ic(f"Rendering stroke with {len(stroke.points)} points")
-                renderer.draw_stroke(stroke.points, color)
-        except Exception as e:
-            logging.exception("Failed to render strokes")
-            raise
-
-
-class ToolService:
-    def __init__(self, settings: Any, bus: EventBus):
-        self.mode = settings.DEFAULT_TOOL
-        bus.subscribe('key_press', self._on_key)
-        logging.info(f"ToolService initialized with mode: {self.mode}")
-
-    def _on_key(self, key: Any):
-        self.mode = 'pan' if key == 'SPACE' else 'brush'
-        if DEBUG: ic(f"Tool switched to: {self.mode}")
-
-
-class UndoRedoService:
-    def __init__(self, bus: EventBus):
-        self._undo: List[Any] = []
-        self._redo: List[Any] = []
-        bus.subscribe('stroke_added', self._record)
-        logging.info("UndoRedoService initialized")
-
-    def _record(self, _):
-        self._undo.append(None)
-        if DEBUG: ic(f"Undo recorded. Stack size: {len(self._undo)}")
-
-    def undo(self):
-        if self._undo:
-            self._undo.pop()
-            if DEBUG: ic(f"Undo executed. Stack size: {len(self._undo)}")
-
-    def redo(self):
-        if self._redo:
-            self._redo.pop()
-            if DEBUG: ic(f"Redo executed. Stack size: {len(self._redo)}")
-
+from core.interfaces import Engine, Clock, InputAdapter
+from core.events import EventBus
+from .grid import draw_grid
+from .journal import JournalService
 
 class App:
     def __init__(
@@ -101,8 +21,8 @@ class App:
         clock: Clock,
         input_adapter: InputAdapter,
         journal_service: JournalService,
-        tool_service: ToolService,
-        undo_service: UndoRedoService,
+        tool_service: Any,
+        undo_service: Any,
         repository: Any,
         exporter: Any,
         widgets: List[Any]
@@ -121,24 +41,10 @@ class App:
         self.running = False
         logging.info("App initialized")
 
-    def draw_grid(self, spacing=25, color=(40, 40, 40)):
-        """"""""""""
-        Draws a mathematical grid as the background.
-
-        Args:
-            spacing (int): Distance between grid lines in pixels.
-            color (tuple): RGB color of grid lines.
-        """"""""""""
-        width, height = self.engine.screen.get_size()
-        for x in range(0, width, spacing):
-            self.engine.draw_line((x, 0), (x, height), 1, color)
-        for y in range(0, height, spacing):
-            self.engine.draw_line((0, y), (width, y), 1, color)
-
     def run(self):
-        """"""""""""
+        """
         Main application loop: handle input, update state, and render.
-        """"""""""""
+        """
         try:
             self.engine.init_window(
                 self.settings.WIDTH,
@@ -199,7 +105,7 @@ class App:
                         self.bus.publish('key_press', key)
 
                 self.engine.clear()
-                self.draw_grid()  # Grid background
+                draw_grid(self.engine)
                 self.journal.render(self.engine)
                 mx, my = pygame.mouse.get_pos() if hasattr(self.engine, 'screen') else (0, 0)
                 self.engine.draw_circle((mx, my), current_width, current_color)
@@ -210,4 +116,3 @@ class App:
         except Exception as e:
             logging.exception("Unhandled exception in App.run()")
             raise
-"""""""""""""""

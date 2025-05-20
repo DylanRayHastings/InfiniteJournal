@@ -4,13 +4,13 @@ Main Entry Point: Application Composition and Startup
 Sets up configuration, adapters, services, and UI widgets, then launches the app.
 """
 
+import os
+import sys
+import logging
 from logging.handlers import RotatingFileHandler
 from backup import *
-
 from icecream import ic
 from rich import traceback
-import logging
-import sys
 import traceback as tb_module
 from debug import DEBUG
 
@@ -24,34 +24,31 @@ if DEBUG:
 LOG_DIR = "logs"
 os.makedirs(LOG_DIR, exist_ok=True)
 
-# Set up rotating log handler
+# Rotating log setup
 log_file_path = os.path.join(LOG_DIR, "app.log")
 rotating_handler = RotatingFileHandler(
     log_file_path, maxBytes=1024 * 100, backupCount=5, encoding='utf-8'
 )
-
-# Stream handler to stdout only if debug
 stream_handler = logging.StreamHandler(sys.stdout if DEBUG else open(os.devnull, 'w'))
 
-# Formatter for all logs
 formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
 rotating_handler.setFormatter(formatter)
 stream_handler.setFormatter(formatter)
 
-# Configure root logger
 logging.basicConfig(
     level=logging.DEBUG if DEBUG else logging.WARNING,
     handlers=[rotating_handler, stream_handler]
 )
 
+# Imports
 from config import Settings
 from core.events import EventBus
-from core.services import (
-    JournalService,
-    ToolService,
-    UndoRedoService,
-    App
-)
+from services.app import App
+from services.journal import JournalService
+from services.grid import draw_grid
+from services.tools import ToolService
+from services.undo import UndoRedoService
+
 from adapters.pygame_adapter import (
     PygameEngineAdapter,
     PygameClockAdapter,
@@ -137,15 +134,12 @@ def main():
     except Exception as e:
         logging.exception("Unhandled exception in main()")
 
-        # Show full formatted traceback using rich or fallback if disabled
         if DEBUG:
-            # Already handled by rich
-            pass
+            pass  # rich handles it
         else:
             print("An error occurred:")
             print(''.join(tb_module.format_exception(*sys.exc_info())))
 
-        # Optional: pause so user can read before terminal closes (Windows-specific behavior)
         if sys.platform == "win32":
             input("\nPress Enter to exit...")
 

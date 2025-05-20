@@ -5,7 +5,7 @@ from pathlib import Path
 
 # ---- CONFIGURATION ----
 REPO_ROOT = Path(__file__).resolve().parent  # Automatically gets directory of this file
-BACKUP_DIR = REPO_ROOT / "Backups"
+BACKUP_DIR = REPO_ROOT / "backups"
 MAX_BACKUPS = 5
 
 BACKUP_DIR.mkdir(exist_ok=True)

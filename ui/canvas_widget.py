@@ -6,7 +6,7 @@ Responsible for rendering journal content to the main drawing surface.
 
 from core.events import EventBus
 from core.interfaces import Renderer
-from core.services import JournalService
+from services.journal import JournalService
 
 class CanvasWidget:
     """
