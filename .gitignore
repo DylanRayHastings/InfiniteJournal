@@ -5,6 +5,9 @@ Backups/
 # Ignore screenshots folder
 Screenshots/
 
+# Ignore logs folder
+logs/
+
 # Ignore Python cache/compiled files
 __pycache__/
 *.pyc
