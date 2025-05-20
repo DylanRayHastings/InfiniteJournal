@@ -1,0 +1,27 @@
+# Ignore backup zips and backup folder
+Backups/
+*.zip
+
+# Ignore Python cache/compiled files
+__pycache__/
+*.pyc
+*.pyo
+
+# Ignore virtual environments
+venv/
+env/
+ENV/
+
+# Ignore system files
+.DS_Store
+Thumbs.db
+
+# Optionally, ignore IDE/project files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Ignore saves or output data if not part of source
+Saves/
+output/

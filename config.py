@@ -1,44 +1,45 @@
-import pygame
+"""
+Configuration Module
 
-# --- Display Constants ---
-WIDTH: int    = 800
-HEIGHT: int   = 600
-FPS: int      = 60
+Defines the `Settings` dataclass containing all application-wide constants.
+Easily extensible to support environment variables or config files.
+"""
 
-# --- Grid Constants ---
-CELL_SIZE: int    = 20
-MAJOR_INTERVAL: int = 5
-LINE_SPACING: int = 30
+from dataclasses import dataclass
+import os
 
-# --- Color Constants ---
-COLORS = {
-    'bg_note':    (  0,   0,   0),
-    'bg_graph':   ( 20,  20,  20),
-    'note_line':  (120, 120, 120),
-    'note_margin':(200, 200, 200),
-    'grid_minor': ( 50,  50,  50),
-    'grid_major': (100, 100, 100),
-}
+@dataclass(frozen=True)
+class Settings:
+    """
+    Application-wide settings and constants.
+    To add dynamic loading (from ./config), modify the `load` classmethod.
+    """
+    WIDTH: int = 1280                 # Window width (pixels)
+    HEIGHT: int = 720                 # Window height (pixels)
+    TITLE: str = "InfiniteJournal"    # Window title
+    FPS: int = 60                     # Target frames per second
+    DEFAULT_TOOL: str = "brush"       # Default drawing tool
+    BRUSH_SIZE_MIN: int = 1           # Minimum brush size (pixels)
+    BRUSH_SIZE_MAX: int = 100         # Maximum brush size (pixels)
 
-BRUSH_COLORS = {
-    1: (255,255,255),
-    2: (255,150,150),
-    3: (150,255,150),
-    4: (150,150,255),
-    5: (255,255,150),
-}
-BRUSH_SIZES = [2, 4, 7, 9, 12]
+    @classmethod
+    def load(cls) -> "Settings":
+        """
+        Loads settings from environment variables or config file if implemented.
+        Currently returns only the defaults defined in the dataclass.
 
-FONT_PATH: str = 'Saira-Italic.ttf'
-FONT_SIZE: int = 24
+        Returns:
+            Settings: An instance with configuration values.
+        """
+        # Example: (uncomment below to use environment variable overrides)
+        # width = int(os.getenv("INFINITE_JOURNAL_WIDTH", cls.WIDTH))
+        # height = int(os.getenv("INFINITE_JOURNAL_HEIGHT", cls.HEIGHT))
+        # title = os.getenv("INFINITE_JOURNAL_TITLE", cls.TITLE)
+        # fps = int(os.getenv("INFINITE_JOURNAL_FPS", cls.FPS))
+        # default_tool = os.getenv("INFINITE_JOURNAL_DEFAULT_TOOL", cls.DEFAULT_TOOL)
+        # brush_min = int(os.getenv("INFINITE_JOURNAL_BRUSH_SIZE_MIN", cls.BRUSH_SIZE_MIN))
+        # brush_max = int(os.getenv("INFINITE_JOURNAL_BRUSH_SIZE_MAX", cls.BRUSH_SIZE_MAX))
+        # return cls(width, height, title, fps, default_tool, brush_min, brush_max)
 
-# --- Tool Modes ---
-TOOL_BRUSH  = 'brush'
-TOOL_LINE   = 'line'
-TOOL_RECT   = 'rect'
-TOOL_CIRCLE = 'circle'
-TOOL_TRIANGLE  = 'triangle'
-TOOL_PARABOLA  = 'parabola'
-
-TOOLS       = [TOOL_BRUSH, TOOL_LINE, TOOL_RECT, TOOL_CIRCLE, TOOL_TRIANGLE, TOOL_PARABOLA]
-DEFAULT_TOOL = TOOL_BRUSH
+        # Return default values for now
+        return cls()
