@@ -2,6 +2,9 @@
 Backups/
 *.zip
 
+# Ignore screenshots folder
+Screenshots/
+
 # Ignore Python cache/compiled files
 __pycache__/
 *.pyc
