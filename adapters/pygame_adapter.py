@@ -39,7 +39,14 @@ class PygameEngineAdapter(Engine):
             elif e.type == pygame.MOUSEMOTION:
                 events.append(Event('MOUSE_MOVE', {'pos': e.pos, 'rel': e.rel}))
             elif e.type == pygame.MOUSEBUTTONDOWN:
-                events.append(Event('MOUSE_DOWN', {'pos': e.pos, 'button': e.button}))
+                if e.button == 4:
+                    # Scroll wheel up
+                    events.append(Event('KEY_PRESS', 'SCROLL_UP'))
+                elif e.button == 5:
+                    # Scroll wheel down
+                    events.append(Event('KEY_PRESS', 'SCROLL_DOWN'))
+                else:
+                    events.append(Event('MOUSE_DOWN', {'pos': e.pos, 'button': e.button}))
             elif e.type == pygame.MOUSEBUTTONUP:
                 events.append(Event('MOUSE_UP', {'pos': e.pos, 'button': e.button}))
             elif e.type == pygame.KEYDOWN:
@@ -58,7 +65,7 @@ class PygameEngineAdapter(Engine):
         """Draws a line between two points."""
         pygame.draw.line(self.screen, color, start, end, width)
 
-    def draw_circle(self, center, radius: int, color=(255, 255, 255), width: int = 1) -> None:
+    def draw_circle(self, center, radius: int, color=(255, 255, 255), width: int = 0) -> None:
         """Draws a circle at the given center with specified radius and line width."""
         pygame.draw.circle(self.screen, color, center, radius, width)
 
@@ -70,18 +77,42 @@ class PygameEngineAdapter(Engine):
 
     # Renderer interface compliance
 
-    def draw_stroke(self, points, width: int, color=(255, 255, 255)) -> None:
+    def draw_stroke(self, points, color=(255, 255, 255), default_width=3) -> None:
         """
-        Draws a continuous stroke by connecting each consecutive pair of points.
+        Draws a continuous stroke, allowing variable width per point.
         Args:
-            points: Sequence of (x, y) tuples.
-            width: Stroke width in pixels.
+            points: Sequence of Point objects (with .x, .y, .width),
+                    or tuples (x, y, width), or tuples (x, y).
             color: Color as (R, G, B).
+            default_width: Fallback width if not specified (for legacy points).
         """
-        if len(points) < 2:
+        def unpack(pt):
+            # Support Point object
+            if hasattr(pt, "x") and hasattr(pt, "y"):
+                # If it also has width
+                w = getattr(pt, "width", default_width)
+                return pt.x, pt.y, w
+            # Support (x, y, width) tuple/list
+            elif isinstance(pt, (tuple, list)):
+                if len(pt) == 3:
+                    return pt[0], pt[1], pt[2]
+                elif len(pt) == 2:
+                    return pt[0], pt[1], default_width
+            raise ValueError("Unsupported point format in stroke: " + repr(pt))
+
+        if len(points) == 0:
+            return
+        if len(points) == 1:
+            x, y, w = unpack(points[0])
+            self.draw_circle((x, y), w, color, 0)
             return
         for i in range(1, len(points)):
-            self.draw_line(points[i - 1], points[i], width, color)
+            x0, y0, w0 = unpack(points[i - 1])
+            x1, y1, w1 = unpack(points[i])
+            self.draw_line((x0, y0), (x1, y1), w0, color)
+            self.draw_circle((x0, y0), w0, color, 0)
+        x_end, y_end, w_end = unpack(points[-1])
+        self.draw_circle((x_end, y_end), w_end, color, 0)
 
     def draw_cursor(self, pos, radius: int, color=(255, 255, 255)) -> None:
         """

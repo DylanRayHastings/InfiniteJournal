@@ -22,6 +22,15 @@ class Settings:
     BRUSH_SIZE_MIN: int = 1           # Minimum brush size (pixels)
     BRUSH_SIZE_MAX: int = 100         # Maximum brush size (pixels)
 
+    NEON_COLORS = [
+    (57, 255, 20),   # Neon Green
+    (0, 255, 255),   # Neon Blue
+    (255, 20, 147),  # Neon Pink
+    (255, 255, 0),   # Neon Yellow
+    (255, 97, 3),    # Neon Orange
+    ]
+
+
     @classmethod
     def load(cls) -> "Settings":
         """

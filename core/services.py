@@ -100,6 +100,15 @@ class App:
         )
         drawing = False
         current_width = self.settings.BRUSH_SIZE_MIN
+        # Add current_color and NEON_COLORS
+        current_color = (255, 255, 255)
+        NEON_COLORS = {
+            '1': (57, 255, 20),    # Neon Green
+            '2': (0, 255, 255),    # Neon Blue
+            '3': (255, 20, 147),   # Neon Pink
+            '4': (255, 255, 0),    # Neon Yellow
+            '5': (255, 97, 3),     # Neon Orange
+        }
         while True:
             raw_events = self.engine.poll_events()
             events = self.input_adapter.translate(raw_events)
@@ -123,13 +132,21 @@ class App:
                         current_width = min(current_width + 1, self.settings.BRUSH_SIZE_MAX)
                     elif key == '-' or key == '_':
                         current_width = max(current_width - 1, self.settings.BRUSH_SIZE_MIN)
+                    # scroll wheel for brush size
+                    elif key == 'SCROLL_UP':
+                        current_width = min(current_width + 1, self.settings.BRUSH_SIZE_MAX)
+                    elif key == 'SCROLL_DOWN':
+                        current_width = max(current_width - 1, self.settings.BRUSH_SIZE_MIN)
+                    # neon colors 1-5
+                    elif key in NEON_COLORS:
+                        current_color = NEON_COLORS[key]
                     self.bus.publish('key_press', key)
             # render
             self.engine.clear()
             self.journal.render(self.engine)
             # optional cursor
             mx, my = pygame.mouse.get_pos() if hasattr(self.engine, 'screen') else (0, 0)
-            self.engine.draw_circle((mx, my), current_width)
+            self.engine.draw_circle((mx, my), current_width, current_color)
             for widget in self.widgets:
                 widget.render()
             self.engine.present()
