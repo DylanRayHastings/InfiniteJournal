@@ -16,9 +16,22 @@ def dispatch(mode: str, raw_expr: str, variable: str = 'x') -> str:
     Returns:
         str: Result or status message.
     """
-    expr = translate_expression(raw_expr)
-
     try:
+        if mode == 'def_integral':
+            # Handle: "expression from a to b"
+            raw = raw_expr.lower()
+            if "from" in raw and "to" in raw:
+                expr_part = raw.split("from")[0].strip()
+                bounds = raw.split("from")[1].split("to")
+                if len(bounds) == 2:
+                    lower = float(bounds[0].strip())
+                    upper = float(bounds[1].strip())
+                    expr_clean = translate_expression(expr_part)
+                    return str(calculus.definite_integral(expr_clean, variable, lower, upper))
+            return "Format error: Use 'expression from a to b'"
+
+        expr = translate_expression(raw_expr)
+
         if mode == 'solve':
             return str(algebra.solve(expr, variable))
         elif mode == 'simplify':
@@ -33,17 +46,6 @@ def dispatch(mode: str, raw_expr: str, variable: str = 'x') -> str:
             return str(calculus.second_derivative(expr, variable))
         elif mode == 'integral':
             return str(calculus.integral(expr, variable))
-        elif mode == 'def_integral':
-            # Parse format: "expression from a to b"
-            parts = expr.lower().split("from")
-            if len(parts) == 2:
-                expr_part = parts[0].strip()
-                bounds = parts[1].split("to")
-                if len(bounds) == 2:
-                    lower = float(bounds[0].strip())
-                    upper = float(bounds[1].strip())
-                    return str(calculus.definite_integral(expr_part, variable, lower, upper))
-            return "Format error: Use 'expression from a to b'"
         elif mode == 'plot':
             plotter.plot(expr)
             return "Graph displayed"

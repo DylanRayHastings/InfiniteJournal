@@ -1,6 +1,5 @@
 import sympy as sp
 
-
 def derivative(expression: str, variable: str = 'x'):
     """
     Computes the derivative of an expression with respect to a variable.
