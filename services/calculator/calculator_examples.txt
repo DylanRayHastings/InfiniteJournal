@@ -1,0 +1,49 @@
+import os
+import textwrap
+
+# Example test expressions
+example_expressions = [
+    # Algebra
+    "2x + 3 = 7",
+    "(x + 1)^2",
+    "x^3 + 3x^2 + 3x + 1",
+    "factor x^2 - 9",
+
+    # Geometry (symbolic expressions only)
+    "pi * r^2",
+    "2 * pi * r",
+    "sqrt(3^2 + 4^2)",
+
+    # Trigonometry
+    "sin(x)^2 + cos(x)^2",
+    "tan(x)^2 + 1",
+    "rewrite_trig sin(x)",
+
+    # Calculus I
+    "derivative x^3 + 2x",
+    "integral x^2",
+    "second_derivative x^4",
+
+    # Calculus II (definite integrals)
+    "integral x^2 from 0 to 3",
+    "integral sin(x) from 0 to pi",
+
+    # Calculus III (partial derivatives style, approximated)
+    "derivative x^2*y + y^2*x",
+
+    # Statistics (symbolic)
+    "mean = (x1 + x2 + x3)/3",
+    "variance = ((x1 - mean)^2 + (x2 - mean)^2 + (x3 - mean)^2)/2",
+
+    # Graphing
+    "plot x^2 - 4x + 4"
+]
+
+# Generate example input file to simulate launching various expressions
+example_script_path = "/mnt/data/calculator_examples.txt"
+
+with open(example_script_path, "w") as f:
+    for expr in example_expressions:
+        f.write(expr + "\n")
+
+example_script_path

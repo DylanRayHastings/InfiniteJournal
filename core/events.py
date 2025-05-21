@@ -5,7 +5,7 @@ from typing import Callable, Dict, List
 
 import logging
 from icecream import ic
-from debug import DEBUG
+from debug import DEBUG, VERBOSE_DEBUG
 
 
 if DEBUG:
@@ -19,13 +19,13 @@ class EventBus:
 
     def subscribe(self, event_type: str, handler: Callable) -> None:
         self._subs.setdefault(event_type, []).append(handler)
-        if DEBUG:
+        if DEBUG and VERBOSE_DEBUG:
             ic(f"Subscribed handler to event: '{event_type}'")
         logging.debug(f"Handler subscribed to event '{event_type}'")
 
     def publish(self, event_type: str, payload=None) -> None:
         handlers = self._subs.get(event_type, [])
-        if DEBUG:
+        if DEBUG and VERBOSE_DEBUG:
             ic(f"Publishing event: '{event_type}' with payload={payload} to {len(handlers)} handlers")
         logging.debug(f"Event published: '{event_type}', handler count: {len(handlers)}")
         for handler in handlers:

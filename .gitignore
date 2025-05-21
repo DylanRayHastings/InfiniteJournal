@@ -31,3 +31,6 @@ Thumbs.db
 # Ignore saves or output data if not part of source
 Saves/
 output/
+
+# Ignore
+cavnas_state.json

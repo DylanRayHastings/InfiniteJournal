@@ -6,7 +6,7 @@ from typing import List, Tuple
 
 import logging
 from icecream import ic
-from debug import DEBUG
+from debug import DEBUG, VERBOSE_DEBUG
 
 if DEBUG:
     ic.configureOutput(prefix='[models] ')
@@ -14,15 +14,10 @@ if DEBUG:
 
 @dataclass
 class Point:
-    x: int
-    y: int
-    width: int
-
-    def __post_init__(self):
-        if DEBUG:
-            ic(f"Point created: ({self.x}, {self.y}, width={self.width})")
-        logging.debug(f"Point initialized: x={self.x}, y={self.y}, width={self.width}")
-
+    x: float
+    y: float
+    z: float = 0.0  # NEW
+    width: int = 1
 
 @dataclass
 class Stroke:
@@ -31,7 +26,7 @@ class Stroke:
 
     def add_point(self, point: Point) -> None:
         self.points.append(point)
-        if DEBUG:
+        if DEBUG and VERBOSE_DEBUG:
             ic(f"Point added to stroke: {point}")
         logging.debug(f"Added point to stroke (color={self.color}): {point}")
 
@@ -43,7 +38,7 @@ class Page:
     def new_stroke(self, color: Tuple[int, int, int]) -> Stroke:
         stroke = Stroke(color=color)
         self.strokes.append(stroke)
-        if DEBUG:
+        if DEBUG and VERBOSE_DEBUG:
             ic(f"New stroke started with color: {color}")
         logging.info(f"Stroke created with color: {color}")
         return stroke

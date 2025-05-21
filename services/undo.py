@@ -21,14 +21,14 @@ class UndoRedoService:
 
     def _record(self, _):
         self._undo.append(None)
-        if DEBUG: ic(f"Undo recorded. Stack size: {len(self._undo)}")
+        if DEBUG and VERBOSE_DEBUG: ic(f"Undo recorded. Stack size: {len(self._undo)}")
 
     def undo(self):
         if self._undo:
             self._undo.pop()
-            if DEBUG: ic(f"Undo executed. Stack size: {len(self._undo)}")
+            if DEBUG and VERBOSE_DEBUG: ic(f"Undo executed. Stack size: {len(self._undo)}")
 
     def redo(self):
         if self._redo:
             self._redo.pop()
-            if DEBUG: ic(f"Redo executed. Stack size: {len(self._redo)}")
+            if DEBUG and VERBOSE_DEBUG: ic(f"Redo executed. Stack size: {len(self._redo)}")

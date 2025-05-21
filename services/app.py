@@ -10,8 +10,13 @@ from debug import *
 
 from core.interfaces import Engine, Clock, InputAdapter
 from core.events import EventBus
-from .grid import draw_grid
-from .journal import JournalService
+from services.grid import draw_grid
+from services.journal import JournalService
+from services.tools import ToolService
+
+if DEBUG:
+    ic.configureOutput(prefix='[app] ')
+    logging.getLogger().setLevel(logging.DEBUG)
 
 class App:
     def __init__(
@@ -21,11 +26,12 @@ class App:
         clock: Clock,
         input_adapter: InputAdapter,
         journal_service: JournalService,
-        tool_service: Any,
+        tool_service: ToolService,
         undo_service: Any,
         repository: Any,
         exporter: Any,
-        widgets: List[Any]
+        widgets: List[Any],
+        bus: EventBus
     ):
         self.settings = settings
         self.engine = engine
@@ -37,14 +43,11 @@ class App:
         self.repo = repository
         self.exporter = exporter
         self.widgets = widgets
-        self.bus = EventBus()
+        self.bus = bus
         self.running = False
         logging.info("App initialized")
 
     def run(self):
-        """
-        Main application loop: handle input, update state, and render.
-        """
         try:
             self.engine.init_window(
                 self.settings.WIDTH,
@@ -80,7 +83,10 @@ class App:
                     elif evt.type == 'MOUSE_DOWN' and evt.data.get('button') == 1:
                         drawing = True
                         x, y = evt.data['pos']
-                        self.journal.start_stroke(x, y, current_width, current_color)
+                        current_tool = self.tool.mode
+                        if DEBUG: ic(f"Starting tool: {current_tool}")
+                        if current_tool in ['brush', 'line', 'rect', 'circle', 'triangle', 'eraser']:
+                            self.journal.start_stroke(x, y, current_width, current_color)
 
                     elif evt.type == 'MOUSE_UP' and evt.data.get('button') == 1:
                         drawing = False

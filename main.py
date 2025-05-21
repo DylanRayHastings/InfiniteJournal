@@ -12,6 +12,7 @@ from backup import *
 from icecream import ic
 from rich import traceback
 import traceback as tb_module
+from services.database import CanvasDatabase
 from debug import DEBUG
 
 # Toggle debug mode here
@@ -63,6 +64,9 @@ from ui.toolbar import Toolbar
 from ui.status_bar import StatusBar
 from ui.popup_manager import PopupManager
 
+# Load settings and create shared event bus
+settings = Settings.load()
+bus = EventBus()
 
 def compose_app() -> App:
     """
@@ -85,10 +89,14 @@ def compose_app() -> App:
         clock  = PygameClockAdapter()
         inp    = PygameInputAdapter()
 
+        tool_service = ToolService(settings, bus)
+
+        database = CanvasDatabase()
+
         logging.info("Initializing services...")
         repo     = FileSystemJournalRepository()
         exporter = ScreenshotExporter()
-        journal  = JournalService(bus)
+        journal = JournalService(bus, tool_service, database)
         undo     = UndoRedoService(bus)
         tools    = ToolService(settings, bus)
 
@@ -110,6 +118,7 @@ def compose_app() -> App:
             repository=repo,
             exporter=exporter,
             widgets=[canvas, toolbar, status, popup],
+            bus=bus
         )
 
         if DEBUG: ic(app)
