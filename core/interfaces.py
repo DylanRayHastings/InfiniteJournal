@@ -6,10 +6,9 @@ from typing import Any, List, Tuple
 
 import logging
 from icecream import ic
-from debug import DEBUG, VERBOSE_DEBUG
 
 
-if DEBUG:
+if logging.DEBUG:
     ic.configureOutput(prefix='[interfaces] ')
     logging.getLogger().setLevel(logging.DEBUG)
 
@@ -20,7 +19,7 @@ class Event:
     def __init__(self, type: str, data: Any):
         self.type = type
         self.data = data
-        if DEBUG and VERBOSE_DEBUG:
+        if logging.DEBUG:
             ic(f"Event created: type='{self.type}', data={self.data}")
         logging.debug(f"Event initialized: type={self.type}, data={self.data}")
 
