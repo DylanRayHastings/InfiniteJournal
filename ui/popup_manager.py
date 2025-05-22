@@ -1,5 +1,5 @@
 from core.interfaces import Renderer, Clock
-from core.events import EventBus
+from core.event_bus import EventBus
 from typing import Optional, Tuple
 
 class PopupManager:

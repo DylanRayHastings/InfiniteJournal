@@ -7,7 +7,7 @@ Currently text-based but designed for easy extension to graphical toolbars.
 
 from services.tools import ToolService
 from core.interfaces import Renderer
-from core.events import EventBus
+from core.event_bus import EventBus
 
 class Toolbar:
     """

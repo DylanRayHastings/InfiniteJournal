@@ -30,7 +30,7 @@ class StatusBar:
 
         # Position 10px from left, 20px from bottom
         x = 10
-        y = self._settings.height - 20
+        y = self._settings.HEIGHT - 20
 
         # Text color
         color = (255, 255, 255)

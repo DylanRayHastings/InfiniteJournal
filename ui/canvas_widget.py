@@ -4,7 +4,7 @@ CanvasWidget bridges JournalService with the rendering Engine.
 Responsible for rendering journal content to the main drawing surface.
 """
 
-from core.events import EventBus
+from core.event_bus import EventBus
 from core.interfaces import Renderer
 from services.journal import JournalService
 

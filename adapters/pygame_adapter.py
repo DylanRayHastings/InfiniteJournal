@@ -1,4 +1,6 @@
 """
+shop/ui_elements/pygame_adapter.py
+
 PyGame Adapter: Engine, Clock, and Input Implementations for Core Interfaces.
 
 This module provides PyGame-based concrete implementations for rendering, event
@@ -8,166 +10,238 @@ interfaces defined in core.interfaces.
 
 import pygame
 import logging
+from typing import Any, Dict, List, Optional, Tuple
 from icecream import ic
 from core.interfaces import Engine, Clock, Event, InputAdapter
-from core.events import EventBus
+from core.event_bus import EventBus
 
-if logging.DEBUG:
+logger = logging.getLogger(__name__)
+if logger.isEnabledFor(logging.DEBUG):
     ic.configureOutput(prefix='[pygame_adapter] ')
-    logging.getLogger().setLevel(logging.DEBUG)
+    logger.setLevel(logging.DEBUG)
 
+# Constants
+DEFAULT_CLEAR_COLOR: Tuple[int,int,int] = (0, 0, 0)
+DEFAULT_DRAW_COLOR: Tuple[int,int,int] = (255, 255, 255)
+DEFAULT_FONT_NAME: Optional[str] = None  # System default
 
-class PygameEngineAdapter(Engine):
-    def __init__(self):
-        self.screen = None
-        logging.info("PygameEngineAdapter initialized")
+# Exceptions
+class AdapterError(Exception):
+    """Base exception for adapter failures."""
+    pass
+
+class NotInitializedError(AdapterError):
+    """Raised when operations are attempted before initialization."""
+    pass
+
+# Utilities
+class FontManager:
+    """Caches and provides Pygame fonts by size."""
+    _cache: Dict[int, pygame.font.Font] = {}
+
+    @classmethod
+    def get_font(cls, size: int) -> pygame.font.Font:
+        font = cls._cache.get(size)
+        if font is None:
+            font = pygame.font.SysFont(DEFAULT_FONT_NAME, size)
+            cls._cache[size] = font
+            logger.debug("Font cached size=%d", size)
+        return font
+
+class PointUnpacker:
+    """Converts points into (x, y, width) tuples."""
+
+    @staticmethod
+    def unpack(pt: Any, default_width: int) -> Tuple[int, int, int]:
+        if hasattr(pt, "x") and hasattr(pt, "y"):
+            width = getattr(pt, "width", default_width)
+            return pt.x, pt.y, width
+        if isinstance(pt, (tuple, list)):
+            if len(pt) == 3:
+                return pt[0], pt[1], pt[2]
+            if len(pt) == 2:
+                return pt[0], pt[1], default_width
+        logger.error("Invalid point format: %r", pt)
+        raise AdapterError(f"Unsupported point format: {pt}")
+
+# Mixins
+class WindowMixin:
+    """Provides window initialization methods."""
 
     def open_window(self, width: int, height: int, title: str) -> None:
-        """
-        Alias for init_window to satisfy engine interface.
-        """
+        """Alias to init_window."""
         self.init_window(width, height, title)
 
     def init_window(self, width: int, height: int, title: str) -> None:
-        """
-        Initialize pygame, create a window of the given size, and set its title.
-        """
+        """Initialize pygame window."""
+        if width <= 0 or height <= 0:
+            logger.error("Invalid window size %dx%d", width, height)
+            raise AdapterError("Window dimensions must be positive")
         pygame.init()
         pygame.font.init()
         flags = pygame.SCALED | pygame.RESIZABLE | pygame.DOUBLEBUF | pygame.HWSURFACE
         try:
             self.screen = pygame.display.set_mode((width, height), flags, vsync=1)
-            pygame.display.set_caption(title)
-            logging.info(f"Window initialized: {width}x{height} - '{title}' (vsync=1)")
-            if logging.DEBUG:
-                ic(width, height, title, flags)
         except TypeError:
-            # Fallback if vsync kwarg isn't supported
             self.screen = pygame.display.set_mode((width, height), flags)
-            pygame.display.set_caption(title)
-            logging.warning("vsync not supported. Fallback used.")
+            logger.warning("Vsync unsupported")
+        pygame.display.set_caption(title)
+        logger.info("Window open %dx%d title=%s", width, height, title)
 
-    def poll_events(self):
-        events = []
-        raw_events = pygame.event.get()
-        for e in raw_events:
+class DisplayMixin:
+    """Provides screen clear and present methods."""
+
+    def clear(self, color: Tuple[int,int,int]=DEFAULT_CLEAR_COLOR) -> None:
+        if not hasattr(self, 'screen') or self.screen is None:
+            raise NotInitializedError("Screen not initialized")
+        self.screen.fill(color)
+        logger.debug("Screen cleared")
+
+    def present(self) -> None:
+        if not hasattr(self, 'screen') or self.screen is None:
+            raise NotInitializedError("Screen not initialized")
+        pygame.display.flip()
+        logger.debug("Screen presented")
+
+class PollMixin:
+    """Handles polling Pygame events and mapping to core.Event."""
+
+    def poll_events(self) -> List[Event]:
+        if not hasattr(self, 'screen') or self.screen is None:
+            raise NotInitializedError("Screen not initialized")
+        raw = pygame.event.get()
+        events: List[Event] = []
+        for e in raw:
             if e.type == pygame.QUIT:
                 events.append(Event('QUIT', {}))
             elif e.type == pygame.MOUSEMOTION:
                 events.append(Event('MOUSE_MOVE', {'pos': e.pos, 'rel': e.rel}))
             elif e.type == pygame.MOUSEBUTTONDOWN:
-                if e.button == 4:
-                    events.append(Event('KEY_PRESS', 'SCROLL_UP'))
-                elif e.button == 5:
-                    events.append(Event('KEY_PRESS', 'SCROLL_DOWN'))
+                if e.button in (4,5):
+                    code = 'SCROLL_UP' if e.button==4 else 'SCROLL_DOWN'
+                    events.append(Event('KEY_PRESS', code))
                 else:
                     events.append(Event('MOUSE_DOWN', {'pos': e.pos, 'button': e.button}))
             elif e.type == pygame.MOUSEBUTTONUP:
                 events.append(Event('MOUSE_UP', {'pos': e.pos, 'button': e.button}))
             elif e.type == pygame.KEYDOWN:
                 events.append(Event('KEY_PRESS', pygame.key.name(e.key)))
-        if logging.DEBUG:
-            ic(events)
-        logging.debug(f"Polled {len(events)} events")
+        logger.debug("Polled %d events", len(events))
         return events
 
-    def clear(self, color=(0, 0, 0)) -> None:
-        self.screen.fill(color)
-        if logging.DEBUG:
-            ic(f"Screen cleared with color {color}")
+class GraphicsMixin:
+    """Provides basic shape drawing methods."""
 
-    def present(self) -> None:
-        pygame.display.flip()
-        if logging.DEBUG:
-            ic("Screen presented")
-
-    def draw_line(self, start, end, width: int, color=(255, 255, 255)) -> None:
+    def draw_line(
+        self, start: Tuple[int,int], end: Tuple[int,int], width: int,
+        color: Tuple[int,int,int]=DEFAULT_DRAW_COLOR
+    ) -> None:
+        if self.screen is None:
+            raise NotInitializedError("Screen not initialized")
         pygame.draw.line(self.screen, color, start, end, width)
-        if logging.DEBUG:
-            ic(f"Line drawn from {start} to {end}, width={width}, color={color}")
+        logger.debug("Line %s->%s width=%d", start, end, width)
 
-    def draw_circle(self, center, radius: int, color=(255, 255, 255), width: int = 0) -> None:
+    def draw_circle(
+        self, center: Tuple[int,int], radius: int,
+        color: Tuple[int,int,int]=DEFAULT_DRAW_COLOR, width: int=0
+    ) -> None:
+        if self.screen is None:
+            raise NotInitializedError("Screen not initialized")
         try:
             pygame.draw.circle(self.screen, color, center, radius, width)
-            if logging.DEBUG:
-                ic(f"Circle drawn at {center}, radius={radius}, width={width}, color={color}")
-        except Exception as e:
-            logging.exception(f"Failed to draw circle at {center} with color={color}")
+        except pygame.error:
+            logger.exception("Circle failed at %s radius=%d", center, radius)
             raise
 
-    def draw_text(self, text: str, pos, font_size: int, color=(255, 255, 255)) -> None:
-        font = pygame.font.SysFont(None, font_size)
+class TextMixin:
+    """Provides text rendering method."""
+
+    def draw_text(
+        self, text: str, pos: Tuple[int,int], size: int,
+        color: Tuple[int,int,int]=DEFAULT_DRAW_COLOR
+    ) -> None:
+        if self.screen is None:
+            raise NotInitializedError("Screen not initialized")
+        font = FontManager.get_font(size)
         surf = font.render(text, True, color)
         self.screen.blit(surf, pos)
-        if logging.DEBUG:
-            ic(f"Text '{text}' drawn at {pos}, size={font_size}, color={color}")
+        logger.debug("Text '%s' at %s size=%d", text, pos, size)
 
-    def draw_stroke(self, points, color=(255, 255, 255), default_width=3) -> None:
-        def unpack(pt):
-            if hasattr(pt, "x") and hasattr(pt, "y"):
-                w = getattr(pt, "width", default_width)
-                return pt.x, pt.y, w
-            elif isinstance(pt, (tuple, list)):
-                if len(pt) == 3:
-                    return pt[0], pt[1], pt[2]
-                elif len(pt) == 2:
-                    return pt[0], pt[1], default_width
-            logging.error(f"Invalid stroke point format: {pt}")
-            raise ValueError("Unsupported point format in stroke: " + repr(pt))
+class StrokeMixin:
+    """Provides stroke drawing method."""
 
-        if not points:
+    def draw_stroke(
+        self, points: List[Any], color: Tuple[int,int,int]=DEFAULT_DRAW_COLOR,
+        default_width: int=3
+    ) -> None:
+        count = len(points)
+        if count == 0:
             return
-
-        if len(points) == 1:
-            x, y, w = unpack(points[0])
-            self.draw_circle((x, y), w, color, 0)
+        if count == 1:
+            x,y,w = PointUnpacker.unpack(points[0], default_width)
+            self.draw_circle((x,y), w, color)
             return
+        for prev, curr in zip(points, points[1:]):
+            x0,y0,w0 = PointUnpacker.unpack(prev, default_width)
+            x1,y1,w1 = PointUnpacker.unpack(curr, default_width)
+            self.draw_line((x0,y0),(x1,y1), w0, color)
+            self.draw_circle((x0,y0), w0, color)
+        x_end,y_end,w_end = PointUnpacker.unpack(points[-1], default_width)
+        self.draw_circle((x_end,y_end), w_end, color)
+        logger.debug("Stroke drawn %d segments", count-1)
 
-        for i in range(1, len(points)):
-            x0, y0, w0 = unpack(points[i - 1])
-            x1, y1, w1 = unpack(points[i])
-            self.draw_line((x0, y0), (x1, y1), w0, color)
-            self.draw_circle((x0, y0), w0, color, 0)
+class CursorMixin:
+    """Provides cursor drawing method."""
 
-        x_end, y_end, w_end = unpack(points[-1])
-        self.draw_circle((x_end, y_end), w_end, color, 0)
-
-        if logging.DEBUG:
-            ic(f"Stroke drawn with {len(points)} points, color={color}")
-
-    def draw_cursor(self, pos, radius: int, color=(255, 255, 255)) -> None:
+    def draw_cursor(
+        self, pos: Tuple[int,int], radius: int,
+        color: Tuple[int,int,int]=DEFAULT_DRAW_COLOR
+    ) -> None:
         self.draw_circle(pos, radius, color)
-        if logging.DEBUG:
-            ic(f"Cursor drawn at {pos}, radius={radius}, color={color}")
+        logger.debug("Cursor at %s r=%d", pos, radius)
 
-    def draw_ui(self, mode: str, timestamp: str, font_color=(255, 255, 255)) -> None:
-        self.draw_text(f"Mode: {mode}", (10, 10), 16, font_color)
+class UIMixin:
+    """Provides UI overlay drawing method."""
+
+    def draw_ui(
+        self, mode: str, timestamp: str,
+        color: Tuple[int,int,int]=DEFAULT_DRAW_COLOR
+    ) -> None:
+        self.draw_text(f"Mode: {mode}", (10,10), 16, color)
         height = self.screen.get_height()
-        self.draw_text(timestamp, (10, height - 20), 14, font_color)
-        if logging.DEBUG:
-            ic(f"UI drawn with mode='{mode}' and timestamp='{timestamp}'")
+        self.draw_text(timestamp, (10, height-20), 14, color)
+        logger.debug("UI overlay")
+
+
+class PygameEngineAdapter(
+    WindowMixin, DisplayMixin, PollMixin,
+    GraphicsMixin, TextMixin, StrokeMixin,
+    CursorMixin, UIMixin, Engine
+):
+    """Composite adapter implementing Engine via mixins."""
+    screen: Optional[pygame.Surface] = None
 
 
 class PygameClockAdapter(Clock):
-    def __init__(self):
-        super().__init__()
+    """Clock implementation using Pygame."""
+
+    def __init__(self) -> None:
         self._clock = pygame.time.Clock()
-        logging.info("PygameClockAdapter initialized")
+        logger.info("Clock initialized")
 
     def tick(self, fps: int) -> None:
         self._clock.tick(fps)
-        if logging.DEBUG:
-            ic(f"Clock ticked at {fps} FPS")
+        logger.debug("Tick %d FPS", fps)
 
     def get_time(self) -> float:
-        time_sec = pygame.time.get_ticks() / 1000.0
-        if logging.DEBUG:
-            ic(f"Elapsed time: {time_sec} seconds")
-        return time_sec
+        t = pygame.time.get_ticks() / 1000.0
+        logger.debug("Time %.3f", t)
+        return t
 
 
 class PygameInputAdapter(InputAdapter):
-    def translate(self, events):
-        if logging.DEBUG:
-            ic(f"Translating {len(events)} events")
+    """Pass-through input adapter (override translate as needed)."""
+
+    def translate(self, events: List[Event]) -> List[Event]:
+        logger.debug("Translate %d events", len(events))
         return events

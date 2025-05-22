@@ -40,3 +40,7 @@ calculator_logs
 calculator_examples.txt
 
 tests/
+
+.VSCodeCounter/
+
+data/

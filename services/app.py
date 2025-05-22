@@ -1,26 +1,60 @@
 import logging
 import inspect
-from core.events import EventBus
+from typing import Any, Dict, List, Tuple
+
+from core.event_bus import EventBus
 from adapters.pygame_adapter import PygameEngineAdapter
+
 
 class App:
     """
-    Main application: event loop, rendering, and input handling.
+    Main application: orchestrates windowing, event loop, rendering, and input handling.
     """
+
+    REQUIRED_SETTINGS = (
+        'TITLE',
+        'WIDTH',
+        'HEIGHT',
+        'FPS',
+        'BRUSH_SIZE_MIN',
+        'BRUSH_SIZE_MAX',
+        'NEON_COLORS',
+        'VALID_TOOLS',
+    )
+
     def __init__(
         self,
-        settings,
+        settings: Any,
         engine: PygameEngineAdapter,
-        clock,
-        input_adapter,
-        journal_service,
-        tool_service,
-        undo_service,
-        repository,
-        exporter,
-        widgets,
+        clock: Any,
+        input_adapter: Any,
+        journal_service: Any,
+        tool_service: Any,
+        undo_service: Any,
+        repository: Any,
+        exporter: Any,
+        widgets: List[Any],
         bus: EventBus,
-    ):
+    ) -> None:
+        """
+        Initializes the App with required adapters, services, and configuration.
+
+        Args:
+            settings: Configuration object with application constants.
+            engine: Engine adapter for window management and rendering.
+            clock: Clock adapter for frame rate control.
+            input_adapter: Adapter to translate raw events into normalized events.
+            journal_service: Service to manage stroke recording.
+            tool_service: Service to manage current tool mode.
+            undo_service: Service for undo/redo operations.
+            repository: Data persistence repository.
+            exporter: Service to export data (e.g., screenshots).
+            widgets: List of UI widget instances to render.
+            bus: EventBus for decoupled event communication.
+
+        Raises:
+            ValueError: If required settings are missing or invalid.
+        """
         self.settings = settings
         self.engine = engine
         self.clock = clock
@@ -32,85 +66,172 @@ class App:
         self.exporter = exporter
         self.widgets = widgets
         self.bus = bus
-        self._logger = logging.getLogger(__name__)
+
+        self._validate_settings()
+
+        # Initialize drawing state
+        self._drawing: bool = False
+        self._brush_width: int = self.settings.BRUSH_SIZE_MIN
+        self._brush_color: Tuple[int, int, int] = (255, 255, 255)
+        self._neon_map: Dict[str, Tuple[int, int, int]] = {
+            str(i + 1): c for i, c in enumerate(self.settings.NEON_COLORS)
+        }
+
+        self._logger = logging.getLogger(self.__class__.__name__)
         self._logger.info("App initialized")
 
-    def run(self):
-        title = type(self.settings).TITLE
-        width = self.settings.width
-        height = self.settings.height
-        fps = self.settings.FPS
+    def _validate_settings(self) -> None:
+        """
+        Validates that settings contain all required attributes with correct types.
 
-        # Initialize window
+        Raises:
+            ValueError: If any required setting is missing.
+            TypeError: If a setting has an unexpected type.
+        """
+        missing = [attr for attr in self.REQUIRED_SETTINGS if not hasattr(self.settings, attr)]
+        if missing:
+            raise ValueError(f"Missing required settings attributes: {missing}")
+        if not isinstance(self.settings.NEON_COLORS, (list, tuple)):
+            raise TypeError("settings.NEON_COLORS must be a list or tuple of colors")
+
+    def run(self) -> None:
+        """
+        Launches the application by opening the window and entering the main loop.
+        """
+        self._open_window()
+        try:
+            self._main_loop()
+        except KeyboardInterrupt:
+            self._logger.info("Run loop interrupted by user")
+        except Exception:
+            self._logger.exception("Unhandled exception in App.run()")
+            raise
+
+    def _open_window(self) -> None:
+        """
+        Opens the application window using the engine adapter.
+
+        Raises:
+            RuntimeError: If the engine adapter is misconfigured or fails.
+        """
+        title = self.settings.TITLE
+        width, height = self.settings.WIDTH, self.settings.HEIGHT
         try:
             self.engine.open_window(width, height, title)
             self._logger.info(f"Window opened: {width}×{height} '{title}'")
         except AttributeError as e:
-            self._logger.critical("Engine adapter misconfigured; missing open_window()", exc_info=e)
-            raise RuntimeError("Failed to start UI: invalid engine adapter") from e
-        except Exception:
-            self._logger.exception("Failed to open window")
-            raise
+            self._logger.critical("Engine adapter missing open_window()", exc_info=e)
+            raise RuntimeError("Invalid engine adapter: missing open_window()") from e
+        except Exception as e:
+            self._logger.exception("Failed to open window", exc_info=e)
+            raise RuntimeError("Failed to initialize UI") from e
 
-        drawing = False
-        current_width = self.settings.BRUSH_SIZE_MIN
-        current_color = (255, 255, 255)
-        neon_colors = {str(i+1): c for i, c in enumerate(self.settings.NEON_COLORS)}
+    def _main_loop(self) -> None:
+        """
+        Main event-render loop: processes events, updates state, and renders widgets.
+        """
+        while True:
+            events = self._get_events()
+            for evt in events:
+                if not self._handle_event(evt):
+                    return
+            self._render_frame()
+            self.clock.tick(self.settings.FPS)
 
-        try:
-            while True:
-                raw_events = self.engine.poll_events()
-                events = self.input_adapter.translate(raw_events)
+    def _get_events(self) -> List[Any]:
+        """
+        Polls raw events from the engine and translates them via the input adapter.
 
-                for evt in events:
-                    etype = evt.type
-                    data = evt.data
+        Returns:
+            List of normalized event objects.
+        """
+        raw = self.engine.poll_events()
+        return self.input_adapter.translate(raw)
 
-                    if etype == 'QUIT':
-                        self._logger.info("QUIT received, exiting run loop")
-                        return
+    def _handle_event(self, evt: Any) -> bool:
+        """
+        Dispatches a single event to the appropriate handler.
 
-                    if etype == 'KEY_PRESS':
-                        key = data
-                        if key in ('=', '+'):
-                            current_width = min(current_width + 1, self.settings.BRUSH_SIZE_MAX)
-                        elif key in ('-', '_'):
-                            current_width = max(current_width - 1, self.settings.BRUSH_SIZE_MIN)
-                        elif key in neon_colors:
-                            current_color = neon_colors[key]
-                        self.bus.publish('key_press', key)
+        Args:
+            evt: Normalized event with 'type' and 'data' attributes.
 
-                    if etype == 'MOUSE_DOWN' and data.get('button') == 1:
-                        drawing = True
-                        x, y = data['pos']
-                        tool = self.tool.current_tool_mode
-                        # Only begin strokes for tools we actually support/configure
-                        if tool in self.settings.VALID_TOOLS:
-                            self.journal.start_stroke(x, y, current_width, current_color)
+        Returns:
+            False if the loop should exit (e.g., on QUIT), True otherwise.
+        """
+        etype, data = evt.type, evt.data
+        if etype == 'QUIT':
+            self._logger.info("QUIT received, exiting")
+            return False
 
-                    if etype == 'MOUSE_UP' and data.get('button') == 1:
-                        drawing = False
-                        self.journal.end_stroke()
+        handler_name = f"_on_{etype.lower()}"
+        handler = getattr(self, handler_name, None)
+        if handler:
+            try:
+                handler(data)
+            except Exception:
+                self._logger.exception(f"Error in handler {handler_name}")
+        return True
 
-                    if etype == 'MOUSE_MOVE' and drawing:
-                        x, y = data['pos']
-                        self.journal.add_point(x, y, current_width)
+    def _on_key_press(self, data: Any) -> None:
+        """
+        Handles KEY_PRESS events: adjusts brush or publishes the key on the event bus.
+        """
+        key = data
+        if key in ('=', '+'):
+            self._brush_width = min(self._brush_width + 1, self.settings.BRUSH_SIZE_MAX)
+        elif key in ('-', '_'):
+            self._brush_width = max(self._brush_width - 1, self.settings.BRUSH_SIZE_MIN)
+        elif key in self._neon_map:
+            self._brush_color = self._neon_map[key]
+        self.bus.publish('key_press', key)
 
-                # Render cycle
-                self.engine.clear()
-                for widget in self.widgets:
-                    sig = inspect.signature(widget.render)
-                    if len(sig.parameters) > 1:
-                        widget.render(self.engine)
-                    else:
-                        widget.render()
-                self.engine.present()
-
-                self.clock.tick(fps)
-
-        except KeyboardInterrupt:
-            self._logger.info("Run loop interrupted by user")
+    def _on_mouse_down(self, data: Dict[str, Any]) -> None:
+        """
+        Handles MOUSE_DOWN events: begins a new stroke.
+        """
+        if data.get('button') != 1:
             return
+        self._drawing = True
+        x, y = data['pos']
+        tool = self.tool.current_tool_mode
+        if tool in self.settings.VALID_TOOLS:
+            self.journal.start_stroke(x, y, self._brush_width, self._brush_color)
+
+    def _on_mouse_up(self, data: Dict[str, Any]) -> None:
+        """
+        Handles MOUSE_UP events: ends the current stroke and persists data.
+        """
+        if data.get('button') != 1:
+            return
+        self._drawing = False
+        self.journal.end_stroke()
+        try:
+            self.repo.save()
         except Exception:
-            self._logger.exception("Unhandled exception in App.run()")
-            raise
+            self._logger.exception("Failed to persist stroke data")
+
+    def _on_mouse_move(self, data: Dict[str, Any]) -> None:
+        """
+        Handles MOUSE_MOVE events: adds points to an active stroke.
+        """
+        if not self._drawing:
+            return
+        x, y = data['pos']
+        self.journal.add_point(x, y, self._brush_width)
+
+    def _render_frame(self) -> None:
+        """
+        Clears the screen, renders all widgets, and presents the frame.
+        """
+        try:
+            self.engine.clear()
+            for widget in self.widgets:
+                sig = inspect.signature(widget.render)
+                if len(sig.parameters) == 1:
+                    widget.render(self.engine)
+                else:
+                    widget.render()
+            self.engine.present()
+        except Exception:
+            self._logger.exception("Error during rendering")
+
