@@ -1,19 +1,17 @@
-"""
-ToolService handles tool mode switching (e.g., brush, pan).
-"""
-
-from typing import Any
 import logging
-from icecream import ic
+from typing import Any
 from core.events import EventBus
-from debug import *
-
-if DEBUG:
-    ic.configureOutput(prefix='[tools] ')
-    logging.getLogger().setLevel(logging.DEBUG)
 
 class ToolService:
+    """
+    Handles tool mode switching and publishes change events.
+    """
     def __init__(self, settings: Any, bus: EventBus):
+        self._logger = logging.getLogger(__name__)
+        self.settings = settings
+        self.bus = bus
+
+        # Map of available tools
         self.tools = {
             'brush': 'Freehand Brush',
             'line': 'Line',
@@ -27,29 +25,31 @@ class ToolService:
             'derivative': 'Derivative (dy/dx)',
             'plot': 'Function Plot',
         }
-        self.mode = settings.DEFAULT_TOOL
-        self._bus = bus
-        self._tool_keys = list(self.tools.keys())
+
+        # Initialize mode from settings.default_tool
+        self.mode = settings.default_tool
+        self._logger.info(f"ToolService initialized with mode: {self.mode}")
+
+        # Listen for key events to switch tools
         bus.subscribe('key_press', self._on_key)
-        logging.info(f"ToolService initialized with mode: {self.mode}")
 
     def set_mode(self, tool_key: str):
         if tool_key in self.tools:
             self.mode = tool_key
-            self._bus.publish('mode_changed', tool_key)
-            if DEBUG: ic(f"Tool switched to: {tool_key} - {self.tools[tool_key]}")
+            self.bus.publish('mode_changed', tool_key)
+            self._logger.debug(f"Tool switched to: {tool_key} - {self.tools[tool_key]}")
 
     def _on_key(self, key: Any):
+        # Directly switch if key matches a tool
         if key in self.tools:
             self.set_mode(key)
         elif key == 'space':
-            # Cycle to the next tool
-            current_index = self._tool_keys.index(self.mode)
-            next_index = (current_index + 1) % len(self._tool_keys)
-            self.set_mode(self._tool_keys[next_index])
-        if DEBUG: ic(f"Key press handled: {key}")
+            # Cycle forward through the list
+            keys = list(self.tools)
+            idx = keys.index(self.mode)
+            self.set_mode(keys[(idx + 1) % len(keys)])
+        self._logger.debug(f"Key press handled in ToolService: {key}")
 
     @property
-    def current_tool_mode(self):
+    def current_tool_mode(self) -> str:
         return self.mode
-

@@ -1,37 +1,25 @@
-"""
-Main application class: event loop, rendering, input handling.
-"""
-
-from typing import List, Any
-import pygame
 import logging
-from icecream import ic
-from debug import *
-
-from core.interfaces import Engine, Clock, InputAdapter
+import inspect
 from core.events import EventBus
-from services.grid import draw_grid
-from services.journal import JournalService
-from services.tools import ToolService
-
-if DEBUG:
-    ic.configureOutput(prefix='[app] ')
-    logging.getLogger().setLevel(logging.DEBUG)
+from adapters.pygame_adapter import PygameEngineAdapter
 
 class App:
+    """
+    Main application: event loop, rendering, and input handling.
+    """
     def __init__(
         self,
-        settings: Any,
-        engine: Engine,
-        clock: Clock,
-        input_adapter: InputAdapter,
-        journal_service: JournalService,
-        tool_service: ToolService,
-        undo_service: Any,
-        repository: Any,
-        exporter: Any,
-        widgets: List[Any],
-        bus: EventBus
+        settings,
+        engine: PygameEngineAdapter,
+        clock,
+        input_adapter,
+        journal_service,
+        tool_service,
+        undo_service,
+        repository,
+        exporter,
+        widgets,
+        bus: EventBus,
     ):
         self.settings = settings
         self.engine = engine
@@ -44,31 +32,30 @@ class App:
         self.exporter = exporter
         self.widgets = widgets
         self.bus = bus
-        self.running = False
-        logging.info("App initialized")
+        self._logger = logging.getLogger(__name__)
+        self._logger.info("App initialized")
 
     def run(self):
+        title = type(self.settings).TITLE
+        width = self.settings.width
+        height = self.settings.height
+        fps = self.settings.FPS
+
+        # Initialize window
         try:
-            self.engine.init_window(
-                self.settings.WIDTH,
-                self.settings.HEIGHT,
-                self.settings.TITLE
-            )
-            logging.info("Window initialized")
-        except Exception as e:
-            logging.exception("Failed to initialize window")
+            self.engine.open_window(width, height, title)
+            self._logger.info(f"Window opened: {width}×{height} '{title}'")
+        except AttributeError as e:
+            self._logger.critical("Engine adapter misconfigured; missing open_window()", exc_info=e)
+            raise RuntimeError("Failed to start UI: invalid engine adapter") from e
+        except Exception:
+            self._logger.exception("Failed to open window")
             raise
 
         drawing = False
         current_width = self.settings.BRUSH_SIZE_MIN
         current_color = (255, 255, 255)
-        NEON_COLORS = {
-            '1': (57, 255, 20),
-            '2': (0, 255, 255),
-            '3': (255, 20, 147),
-            '4': (255, 255, 0),
-            '5': (255, 97, 3),
-        }
+        neon_colors = {str(i+1): c for i, c in enumerate(self.settings.NEON_COLORS)}
 
         try:
             while True:
@@ -76,49 +63,54 @@ class App:
                 events = self.input_adapter.translate(raw_events)
 
                 for evt in events:
-                    if evt.type == 'QUIT':
-                        logging.info("QUIT event received")
+                    etype = evt.type
+                    data = evt.data
+
+                    if etype == 'QUIT':
+                        self._logger.info("QUIT received, exiting run loop")
                         return
 
-                    elif evt.type == 'MOUSE_DOWN' and evt.data.get('button') == 1:
-                        drawing = True
-                        x, y = evt.data['pos']
-                        current_tool = self.tool.mode
-                        if DEBUG: ic(f"Starting tool: {current_tool}")
-                        if current_tool in ['brush', 'line', 'rect', 'circle', 'triangle', 'eraser']:
-                            self.journal.start_stroke(x, y, current_width, current_color)
-
-                    elif evt.type == 'MOUSE_UP' and evt.data.get('button') == 1:
-                        drawing = False
-                        self.journal.end_stroke()
-
-                    elif evt.type == 'MOUSE_MOVE' and drawing:
-                        x, y = evt.data['pos']
-                        self.journal.add_point(x, y, current_width)
-
-                    elif evt.type == 'KEY_PRESS':
-                        key = evt.data
+                    if etype == 'KEY_PRESS':
+                        key = data
                         if key in ('=', '+'):
                             current_width = min(current_width + 1, self.settings.BRUSH_SIZE_MAX)
                         elif key in ('-', '_'):
                             current_width = max(current_width - 1, self.settings.BRUSH_SIZE_MIN)
-                        elif key == 'SCROLL_UP':
-                            current_width = min(current_width + 1, self.settings.BRUSH_SIZE_MAX)
-                        elif key == 'SCROLL_DOWN':
-                            current_width = max(current_width - 1, self.settings.BRUSH_SIZE_MIN)
-                        elif key in NEON_COLORS:
-                            current_color = NEON_COLORS[key]
+                        elif key in neon_colors:
+                            current_color = neon_colors[key]
                         self.bus.publish('key_press', key)
 
+                    if etype == 'MOUSE_DOWN' and data.get('button') == 1:
+                        drawing = True
+                        x, y = data['pos']
+                        tool = self.tool.current_tool_mode
+                        # Only begin strokes for tools we actually support/configure
+                        if tool in self.settings.VALID_TOOLS:
+                            self.journal.start_stroke(x, y, current_width, current_color)
+
+                    if etype == 'MOUSE_UP' and data.get('button') == 1:
+                        drawing = False
+                        self.journal.end_stroke()
+
+                    if etype == 'MOUSE_MOVE' and drawing:
+                        x, y = data['pos']
+                        self.journal.add_point(x, y, current_width)
+
+                # Render cycle
                 self.engine.clear()
-                draw_grid(self.engine)
-                self.journal.render(self.engine)
-                mx, my = pygame.mouse.get_pos() if hasattr(self.engine, 'screen') else (0, 0)
-                self.engine.draw_circle((mx, my), current_width, current_color)
                 for widget in self.widgets:
-                    widget.render()
+                    sig = inspect.signature(widget.render)
+                    if len(sig.parameters) > 1:
+                        widget.render(self.engine)
+                    else:
+                        widget.render()
                 self.engine.present()
-                self.clock.tick(self.settings.FPS)
-        except Exception as e:
-            logging.exception("Unhandled exception in App.run()")
+
+                self.clock.tick(fps)
+
+        except KeyboardInterrupt:
+            self._logger.info("Run loop interrupted by user")
+            return
+        except Exception:
+            self._logger.exception("Unhandled exception in App.run()")
             raise

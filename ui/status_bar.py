@@ -24,8 +24,17 @@ class StatusBar:
         Renders the status bar at the bottom-left corner, showing the elapsed time.
         Extend this method to include more status messages or icons as needed.
         """
+        # Fetch elapsed time and format
         elapsed = self._clock.get_time()
         timestamp = f"Time: {elapsed:.1f}s"
+
+        # Position 10px from left, 20px from bottom
         x = 10
-        y = self._settings.HEIGHT - 20
-        self._renderer.draw_text(timestamp, (x, y), 14)
+        y = self._settings.height - 20
+
+        # Text color
+        color = (255, 255, 255)
+
+        # Draw the timestamp
+        # draw_text(text, position, font_size, color)
+        self._renderer.draw_text(timestamp, (x, y), 14, color)

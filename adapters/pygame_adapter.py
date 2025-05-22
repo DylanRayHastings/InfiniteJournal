@@ -24,7 +24,16 @@ class PygameEngineAdapter(Engine):
         self.screen = None
         logging.info("PygameEngineAdapter initialized")
 
+    def open_window(self, width: int, height: int, title: str) -> None:
+        """
+        Alias for init_window to satisfy engine interface.
+        """
+        self.init_window(width, height, title)
+
     def init_window(self, width: int, height: int, title: str) -> None:
+        """
+        Initialize pygame, create a window of the given size, and set its title.
+        """
         pygame.init()
         pygame.font.init()
         flags = pygame.SCALED | pygame.RESIZABLE | pygame.DOUBLEBUF | pygame.HWSURFACE
@@ -35,6 +44,7 @@ class PygameEngineAdapter(Engine):
             if DEBUG and VERBOSE_DEBUG:
                 ic(width, height, title, flags)
         except TypeError:
+            # Fallback if vsync kwarg isn't supported
             self.screen = pygame.display.set_mode((width, height), flags)
             pygame.display.set_caption(title)
             logging.warning("vsync not supported. Fallback used.")
@@ -107,19 +117,23 @@ class PygameEngineAdapter(Engine):
             logging.error(f"Invalid stroke point format: {pt}")
             raise ValueError("Unsupported point format in stroke: " + repr(pt))
 
-        if len(points) == 0:
+        if not points:
             return
+
         if len(points) == 1:
             x, y, w = unpack(points[0])
             self.draw_circle((x, y), w, color, 0)
             return
+
         for i in range(1, len(points)):
             x0, y0, w0 = unpack(points[i - 1])
             x1, y1, w1 = unpack(points[i])
             self.draw_line((x0, y0), (x1, y1), w0, color)
             self.draw_circle((x0, y0), w0, color, 0)
+
         x_end, y_end, w_end = unpack(points[-1])
         self.draw_circle((x_end, y_end), w_end, color, 0)
+
         if DEBUG and VERBOSE_DEBUG:
             ic(f"Stroke drawn with {len(points)} points, color={color}")
 
