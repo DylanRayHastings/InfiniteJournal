@@ -30,7 +30,7 @@ def init_widgets(
     
     # Canvas widget for drawing (middle layer)
     try:
-        from ui.canvas_widget import CanvasWidget
+        from ui.drawing_interface import CanvasWidget
         canvas_widget = CanvasWidget(journal_service, engine, bus)
         widgets.append(canvas_widget)
         logger.info("Canvas widget added")
