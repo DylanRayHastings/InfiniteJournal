@@ -1,4 +1,3 @@
-# core/performance.py (NEW FILE: Performance optimization system)
 """
 Performance optimization system for InfiniteJournal
 
@@ -9,12 +8,10 @@ import time
 import logging
 import threading
 import weakref
-from typing import Any, Dict, List, Optional, Callable, TypeVar, Generic
+from typing import Any, Dict, List, Optional, Callable, Tuple, TypeVar, Generic
 from dataclasses import dataclass, field
 from collections import deque, OrderedDict
 from abc import ABC, abstractmethod
-
-from sympy import Tuple
 
 logger = logging.getLogger(__name__)
 

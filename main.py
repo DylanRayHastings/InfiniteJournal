@@ -1,6 +1,5 @@
-#!/usr/bin/env python3
 """
-Main entry point for InfiniteJournal application.
+Main entry point for InfiniteJournal application - minimal update that works with existing code.
 """
 
 import logging
@@ -14,9 +13,39 @@ from config import Settings, ConfigurationError
 from bootstrap.cli import parse_args
 from bootstrap.logging_setup import setup_logging
 from bootstrap.errors import make_exception_hook, StartupError
-from bootstrap.factory import compose_app
+from bootstrap.factory import compose_app  # Use existing function
 
 logger = logging.getLogger(__name__)
+
+
+def validate_environment() -> Optional[str]:
+    """
+    Validate the environment for running the application.
+    Returns error message if validation fails, None if successful.
+    """
+    try:
+        # Check Python version
+        if sys.version_info < (3, 9):
+            return f"Python 3.9+ required, found {sys.version_info.major}.{sys.version_info.minor}"
+        
+        # Check critical imports
+        try:
+            import pygame
+        except ImportError:
+            return "Pygame is not installed. Please install with: pip install pygame"
+        
+        # Check for write permissions in current directory
+        try:
+            test_file = Path("write_test.tmp")
+            test_file.write_text("test")
+            test_file.unlink()
+        except Exception:
+            return "No write permissions in current directory"
+        
+        return None  # Validation successful
+        
+    except Exception as e:
+        return f"Environment validation failed: {e}"
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -29,6 +58,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     Returns:
         Exit code (0 for success, non-zero for failure)
     """
+    # Validate environment first
+    env_error = validate_environment()
+    if env_error:
+        print(f"Environment validation failed: {env_error}", file=sys.stderr)
+        return 2
+    
     # Load environment variables first
     env_file = Path('.env')
     if env_file.exists():
