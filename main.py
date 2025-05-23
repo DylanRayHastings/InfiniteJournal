@@ -1,5 +1,7 @@
 """
-Main entry point for InfiniteJournal application - minimal update that works with existing code.
+Simple main entry point that uses the working drawing system.
+
+This bypasses the complex enhanced systems and focuses on core functionality.
 """
 
 import logging
@@ -13,16 +15,13 @@ from config import Settings, ConfigurationError
 from bootstrap.cli import parse_args
 from bootstrap.logging_setup import setup_logging
 from bootstrap.errors import make_exception_hook, StartupError
-from bootstrap.legacy_factory import compose_app  # Use existing function
+from bootstrap.factory import create_simple_app
 
 logger = logging.getLogger(__name__)
 
 
 def validate_environment() -> Optional[str]:
-    """
-    Validate the environment for running the application.
-    Returns error message if validation fails, None if successful.
-    """
+    """Validate the environment for running the application."""
     try:
         # Check Python version
         if sys.version_info < (3, 9):
@@ -50,11 +49,8 @@ def validate_environment() -> Optional[str]:
 
 def main(argv: Optional[List[str]] = None) -> int:
     """
-    Entry point for the application.
+    Simple entry point for the application.
     
-    Args:
-        argv: Command line arguments (defaults to sys.argv)
-        
     Returns:
         Exit code (0 for success, non-zero for failure)
     """
@@ -64,7 +60,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(f"Environment validation failed: {env_error}", file=sys.stderr)
         return 2
     
-    # Load environment variables first
+    # Load environment variables
     env_file = Path('.env')
     if env_file.exists():
         load_dotenv(env_file)
@@ -84,13 +80,6 @@ def main(argv: Optional[List[str]] = None) -> int:
         settings = Settings.load()
     except ConfigurationError as e:
         print(f"Configuration error: {e}", file=sys.stderr)
-        print("\nPlease check your environment variables or .env file:", file=sys.stderr)
-        print("  IJ_WIDTH: Window width (100-5000)", file=sys.stderr)
-        print("  IJ_HEIGHT: Window height (100-5000)", file=sys.stderr)
-        print("  IJ_FPS: Target FPS (1-240)", file=sys.stderr)
-        print("  IJ_BRUSH_MIN: Minimum brush size (1-200)", file=sys.stderr)
-        print("  IJ_BRUSH_MAX: Maximum brush size (1-200)", file=sys.stderr)
-        print(f"  IJ_DEFAULT_TOOL: Default tool ({', '.join(Settings.VALID_TOOLS)})", file=sys.stderr)
         return 2
     except Exception as e:
         print(f"Unexpected configuration error: {e}", file=sys.stderr)
@@ -107,17 +96,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Install global exception handler
     sys.excepthook = make_exception_hook(settings)
     
-    logger.info("Starting InfiniteJournal application")
-    logger.info("Configuration: DEBUG=%s, SIZE=%dx%d, FPS=%d, TOOL=%s", 
-               settings.DEBUG, settings.WIDTH, settings.HEIGHT, settings.FPS, settings.DEFAULT_TOOL)
+    logger.info("Starting InfiniteJournal (Simple Mode)")
+    logger.info("Configuration: SIZE=%dx%d, FPS=%d", 
+               settings.WIDTH, settings.HEIGHT, settings.FPS)
 
-    # Compose and run application
+    # Create and run simple application
     try:
-        app = compose_app(settings)
-        logger.info("Application composed successfully")
+        app = create_simple_app(settings)
+        logger.info("Simple application created successfully")
+        
         app.run()
+        
         logger.info("Application exited normally")
         return 0
+        
     except StartupError as e:
         logger.error("Startup failure: %s", e)
         if not settings.DEBUG:

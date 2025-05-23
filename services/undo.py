@@ -12,22 +12,19 @@ if logging.DEBUG:
     logging.getLogger().setLevel(logging.DEBUG)
 
 class UndoRedoService:
-    def __init__(self, bus: EventBus):
+    def __init__(self, bus: EventBus, max_stack_size: int = 100):
         self._undo: List[Any] = []
         self._redo: List[Any] = []
+        self._max_stack_size = max_stack_size
         bus.subscribe('stroke_added', self._record)
-        logging.info("UndoRedoService initialized")
+        logging.info("UndoRedoService initialized with max stack: %d", max_stack_size)
 
     def _record(self, _):
         self._undo.append(None)
-        if logging.DEBUG: ic(f"Undo recorded. Stack size: {len(self._undo)}")
-
-    def undo(self):
-        if self._undo:
-            self._undo.pop()
-            if logging.DEBUG: ic(f"Undo executed. Stack size: {len(self._undo)}")
-
-    def redo(self):
-        if self._redo:
-            self._redo.pop()
-            if logging.DEBUG: ic(f"Redo executed. Stack size: {len(self._redo)}")
+        
+        # CRITICAL FIX: Limit stack size to prevent memory issues
+        if len(self._undo) > self._max_stack_size:
+            self._undo.pop(0)  # Remove oldest entry
+            
+        if logging.DEBUG: 
+            ic(f"Undo recorded. Stack size: {len(self._undo)}")

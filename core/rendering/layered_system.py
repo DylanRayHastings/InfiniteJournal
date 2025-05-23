@@ -11,6 +11,7 @@ CRITICAL FIX: Prevents eraser from affecting background grid elements.
 """
 
 import logging
+import time
 import pygame
 import threading
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -71,14 +72,18 @@ class GridBackground(RenderableObject):
         super().__init__(0, 0, width, height)
         self.spacing = spacing
         self.color = color
-        self.infinite_bounds = (-10000, -10000, 20000, 20000)  # Large bounds for infinite grid
+        self.infinite_bounds = (-10000, -10000, 20000, 20000)
         
     def render(self, surface: pygame.Surface) -> None:
-        """Render infinite grid that extends beyond viewport."""
+        """Render infinite grid with FIXED viewport access."""
         try:
-            # Get viewport offset for infinite grid
-            viewport_x = getattr(surface, '_viewport_x', 0)
-            viewport_y = getattr(surface, '_viewport_y', 0)
+            # CRITICAL FIX: Get viewport from layer instead of surface
+            viewport_x = 0
+            viewport_y = 0
+            
+            # Try to get viewport from the layer (passed via special attribute)
+            if hasattr(surface, '_layer_viewport'):
+                viewport_x, viewport_y = surface._layer_viewport
             
             # Calculate grid start positions
             start_x = (viewport_x // self.spacing) * self.spacing - self.spacing
@@ -88,7 +93,7 @@ class GridBackground(RenderableObject):
             for x in range(start_x, start_x + self.width + self.spacing * 2, self.spacing):
                 try:
                     screen_x = x - viewport_x
-                    if -100 <= screen_x <= self.width + 100:  # Only render visible lines
+                    if -100 <= screen_x <= self.width + 100:
                         pygame.draw.line(surface, self.color, (screen_x, 0), (screen_x, self.height), 1)
                 except Exception:
                     continue
@@ -97,7 +102,7 @@ class GridBackground(RenderableObject):
             for y in range(start_y, start_y + self.height + self.spacing * 2, self.spacing):
                 try:
                     screen_y = y - viewport_y
-                    if -100 <= screen_y <= self.height + 100:  # Only render visible lines
+                    if -100 <= screen_y <= self.height + 100:
                         pygame.draw.line(surface, self.color, (0, screen_y), (self.width, screen_y), 1)
                 except Exception:
                     continue
@@ -207,81 +212,8 @@ class UIElement(RenderableObject):
 class RenderLayer:
     """Individual rendering layer with surface management."""
     
-    def __init__(self, config: LayerConfig, width: int, height: int):
-        self.config = config
-        self.width = width
-        self.height = height
-        self.objects: List[RenderableObject] = []
-        self._surface = None
-        self._dirty_regions = []
-        self._cache_valid = False
-        self._lock = threading.Lock()
-        
-        try:
-            self._create_surface()
-        except Exception as e:
-            logger.error("Failed to create layer surface for %s: %s", config.name, e)
-            
-    def _create_surface(self):
-        """Create pygame surface for this layer."""
-        try:
-            if self.config.alpha < 255:
-                self._surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
-            else:
-                self._surface = pygame.Surface((self.width, self.height))
-                
-            if self.config.alpha < 255:
-                self._surface.set_alpha(self.config.alpha)
-                
-        except Exception as e:
-            logger.error("Error creating surface: %s", e)
-            
-    def add_object(self, obj: RenderableObject) -> None:
-        """Add renderable object to this layer."""
-        with self._lock:
-            self.objects.append(obj)
-            self._mark_dirty()
-            
-    def remove_object(self, obj: RenderableObject) -> None:
-        """Remove renderable object from this layer."""
-        with self._lock:
-            if obj in self.objects:
-                self.objects.remove(obj)
-                self._mark_dirty()
-                
-    def clear_objects(self) -> None:
-        """Clear all objects from this layer."""
-        with self._lock:
-            self.objects.clear()
-            self._mark_dirty()
-            
-    def _mark_dirty(self) -> None:
-        """Mark layer as needing re-render."""
-        self._cache_valid = False
-        
-    def render(self, target_surface: pygame.Surface, viewport_offset: Tuple[int, int] = (0, 0)) -> None:
-        """Render this layer to target surface."""
-        try:
-            if not self._surface:
-                return
-                
-            with self._lock:
-                # Clear layer surface if needed
-                if not self._cache_valid or any(obj.dirty for obj in self.objects):
-                    self._render_to_layer_surface(viewport_offset)
-                    self._cache_valid = True
-                    
-                # Blit layer to target with proper blending
-                if self.config.blend_mode:
-                    target_surface.blit(self._surface, (0, 0), special_flags=self.config.blend_mode)
-                else:
-                    target_surface.blit(self._surface, (0, 0))
-                    
-        except Exception as e:
-            logger.error("Error rendering layer %s: %s", self.config.name, e)
-            
     def _render_to_layer_surface(self, viewport_offset: Tuple[int, int]) -> None:
-        """Render all objects to layer surface."""
+        """Render all objects to layer surface with FIXED viewport passing."""
         try:
             # Clear surface
             if self.config.alpha < 255:
@@ -289,10 +221,9 @@ class RenderLayer:
             else:
                 self._surface.fill((0, 0, 0))  # Black
                 
-            # Set viewport offset for infinite grid
+            # CRITICAL FIX: Set viewport via special attribute instead of direct assignment
             if self.config.name == "background":
-                self._surface._viewport_x = viewport_offset[0]
-                self._surface._viewport_y = viewport_offset[1]
+                self._surface._layer_viewport = viewport_offset
                 
             # Render all visible objects
             for obj in self.objects:
@@ -306,7 +237,6 @@ class RenderLayer:
                         
         except Exception as e:
             logger.error("Error rendering to layer surface: %s", e)
-
 
 class LayeredRenderingSystem:
     """Main layered rendering system manager."""
@@ -507,3 +437,28 @@ class LayeredPygameAdapter:
         """Render all layers."""
         if self.rendering_system and hasattr(self.engine, 'screen'):
             self.rendering_system.render_all(self.engine.screen)
+
+class LayeredRenderingSystem:
+    """Main layered rendering system manager."""
+    
+    def __init__(self, width: int, height: int):
+        self.width = width
+        self.height = height
+        self.layers: Dict[LayerType, RenderLayer] = {}
+        self.viewport_offset = [0, 0]
+        self._lock = threading.Lock()
+        
+        # CRITICAL FIX: Add error throttling
+        self._last_error_time = {}
+        self._error_throttle_interval = 1.0  # Max 1 error per second per type
+        
+        self._initialize_layers()
+        
+    def _log_throttled_error(self, error_key: str, message: str) -> None:
+        """Log error with throttling to prevent spam."""
+        current_time = time.time()
+        last_time = self._last_error_time.get(error_key, 0)
+        
+        if current_time - last_time >= self._error_throttle_interval:
+            logger.error(message)
+            self._last_error_time[error_key] = current_time

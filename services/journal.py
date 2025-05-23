@@ -1,4 +1,3 @@
-# services/journal.py (UPDATED - Enhanced with new architectural systems)
 """
 Enhanced Journal Service with Architectural Integration
 
