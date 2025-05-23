@@ -1,9 +1,6 @@
 """
-Unified Tool Management System
-Eliminates ALL tool duplication through universal tool architecture.
-
-This module consolidates tool patterns from tools.py, undo.py, and journal.py
-into a single, extensible tool management system.
+Fixed Unified Tool Management System
+Eliminates service initialization timing issues.
 """
 
 import logging
@@ -240,78 +237,6 @@ class ShapeGenerator:
             points.append((int(x), int(y)))
         
         return points
-    
-    @staticmethod
-    def generate_triangle_points(
-        start: Tuple[int, int],
-        end: Tuple[int, int]
-    ) -> List[Tuple[int, int]]:
-        """Generate equilateral triangle points."""
-        x1, y1 = start
-        x2, y2 = end
-        
-        # Calculate third point for equilateral triangle
-        mid_x = (x1 + x2) / 2
-        mid_y = (y1 + y2) / 2
-        
-        # Vector from start to end
-        dx = x2 - x1
-        dy = y2 - y1
-        
-        # Perpendicular vector (rotated 90 degrees)
-        perp_x = -dy
-        perp_y = dx
-        
-        # Scale to make equilateral
-        height = math.sqrt(3) / 2
-        scale = height
-        
-        x3 = mid_x + perp_x * scale
-        y3 = mid_y + perp_y * scale
-        
-        return [
-            (x1, y1), (x2, y2),
-            (int(x3), int(y3)), (x1, y1)
-        ]
-    
-    @staticmethod
-    def generate_parabola_points(
-        start: Tuple[int, int],
-        end: Tuple[int, int],
-        curvature: float = 1.0,
-        resolution: int = 50
-    ) -> List[Tuple[int, int]]:
-        """Generate parabola points."""
-        x1, y1 = start
-        x2, y2 = end
-        
-        points = []
-        
-        for i in range(resolution + 1):
-            t = i / resolution
-            
-            # Quadratic bezier curve with control point
-            # Control point is offset perpendicular to the line
-            mid_x = (x1 + x2) / 2
-            mid_y = (y1 + y2) / 2
-            
-            # Vector perpendicular to line
-            dx = x2 - x1
-            dy = y2 - y1
-            perp_x = -dy * curvature
-            perp_y = dx * curvature
-            
-            # Control point
-            ctrl_x = mid_x + perp_x * 0.5
-            ctrl_y = mid_y + perp_y * 0.5
-            
-            # Quadratic bezier formula
-            x = (1-t)**2 * x1 + 2*(1-t)*t * ctrl_x + t**2 * x2
-            y = (1-t)**2 * y1 + 2*(1-t)*t * ctrl_y + t**2 * y2
-            
-            points.append((int(x), int(y)))
-        
-        return points
 
 
 class RectangleTool(BaseTool):
@@ -421,7 +346,7 @@ class ToolManager(UniversalService):
     """
     Universal tool manager eliminating all tool service duplication.
     
-    Manages tool selection, state, and operations through unified interface.
+    Fixed to handle service initialization timing issues.
     """
     
     def __init__(
@@ -443,12 +368,12 @@ class ToolManager(UniversalService):
         self.active_operation: Optional[Any] = None
         
     def _initialize_service(self) -> None:
-        """Initialize tool manager service."""
+        """Initialize tool manager service - FIXED VERSION."""
         # Register all standard tools
         self._register_standard_tools()
         
-        # Set default tool
-        self.set_active_tool(ToolType.BRUSH)
+        # Set default tool WITHOUT using service error handling during initialization
+        self._set_default_tool_direct()
         
         # Subscribe to events
         if self.event_bus:
@@ -477,6 +402,23 @@ class ToolManager(UniversalService):
         for tool in standard_tools:
             self.tools[tool.get_tool_type()] = tool
             self.logger.debug(f"Registered tool: {tool.get_tool_type()}")
+    
+    def _set_default_tool_direct(self):
+        """Set default tool directly without service state checks - FIXED."""
+        try:
+            # Set current tool directly without error handling wrapper
+            if ToolType.BRUSH in self.tools:
+                self.current_tool = self.tools[ToolType.BRUSH]
+                self.current_state = self.current_state.with_updates(
+                    tool_type=ToolType.BRUSH,
+                    is_active=True
+                )
+                self.logger.info("Default tool set to BRUSH (direct)")
+            else:
+                self.logger.warning("BRUSH tool not found in registered tools")
+                
+        except Exception as error:
+            self.logger.error(f"Failed to set default tool: {error}")
     
     def register_tool(self, tool: DrawingTool):
         """Register custom tool."""
@@ -508,7 +450,12 @@ class ToolManager(UniversalService):
             self.logger.info(f"Active tool changed to: {tool_type}")
             return True
         
-        return self.execute_with_error_handling("set_active_tool", _set_tool)
+        # Only use error handling if service is running, otherwise set directly
+        if self.is_ready():
+            return self.execute_with_error_handling("set_active_tool", _set_tool)
+        else:
+            # Direct call during initialization
+            return _set_tool()
     
     def start_tool_operation(self, start_pos: Tuple[int, int]) -> Any:
         """Start tool operation."""
