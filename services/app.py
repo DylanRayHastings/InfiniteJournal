@@ -1,3 +1,5 @@
+"""Main application service with improved error handling and proper repository usage."""
+
 import logging
 import inspect
 from typing import Any, Dict, List, Tuple
@@ -76,6 +78,7 @@ class App:
         self._neon_map: Dict[str, Tuple[int, int, int]] = {
             str(i + 1): c for i, c in enumerate(self.settings.NEON_COLORS)
         }
+        self._current_page_id: str = "main_page"  # Simple page management
 
         self._logger = logging.getLogger(self.__class__.__name__)
         self._logger.info("App initialized")
@@ -179,36 +182,54 @@ class App:
         key = data
         if key in ('=', '+'):
             self._brush_width = min(self._brush_width + 1, self.settings.BRUSH_SIZE_MAX)
+            self._logger.debug("Brush size increased to %d", self._brush_width)
         elif key in ('-', '_'):
             self._brush_width = max(self._brush_width - 1, self.settings.BRUSH_SIZE_MIN)
+            self._logger.debug("Brush size decreased to %d", self._brush_width)
         elif key in self._neon_map:
             self._brush_color = self._neon_map[key]
+            self._logger.debug("Brush color changed to %s", self._brush_color)
         self.bus.publish('key_press', key)
 
     def _on_mouse_down(self, data: Dict[str, Any]) -> None:
         """
         Handles MOUSE_DOWN events: begins a new stroke.
         """
-        if data.get('button') != 1:
+        if data.get('button') != 1:  # Only handle left mouse button
             return
+        
         self._drawing = True
         x, y = data['pos']
         tool = self.tool.current_tool_mode
+        
         if tool in self.settings.VALID_TOOLS:
-            self.journal.start_stroke(x, y, self._brush_width, self._brush_color)
+            try:
+                self.journal.start_stroke(x, y, self._brush_width, self._brush_color)
+                self._logger.debug("Started stroke at (%d, %d) with tool %s", x, y, tool)
+            except Exception as e:
+                self._logger.error("Error starting stroke: %s", e)
+                self._drawing = False
 
     def _on_mouse_up(self, data: Dict[str, Any]) -> None:
         """
         Handles MOUSE_UP events: ends the current stroke and persists data.
         """
-        if data.get('button') != 1:
+        if data.get('button') != 1:  # Only handle left mouse button
             return
+        
+        if not self._drawing:
+            return
+            
         self._drawing = False
-        self.journal.end_stroke()
+        
         try:
-            self.repo.save()
-        except Exception:
-            self._logger.exception("Failed to persist stroke data")
+            self.journal.end_stroke()
+            # Save the current page to the repository
+            page = self.journal._page  # Access the current page
+            self.repo.save_page(page, self._current_page_id)
+            self._logger.debug("Stroke ended and page saved")
+        except Exception as e:
+            self._logger.error("Failed to persist stroke data: %s", e)
 
     def _on_mouse_move(self, data: Dict[str, Any]) -> None:
         """
@@ -216,8 +237,12 @@ class App:
         """
         if not self._drawing:
             return
+        
         x, y = data['pos']
-        self.journal.add_point(x, y, self._brush_width)
+        try:
+            self.journal.add_point(x, y, self._brush_width)
+        except Exception as e:
+            self._logger.error("Error adding point to stroke: %s", e)
 
     def _render_frame(self) -> None:
         """
@@ -226,12 +251,14 @@ class App:
         try:
             self.engine.clear()
             for widget in self.widgets:
-                sig = inspect.signature(widget.render)
-                if len(sig.parameters) == 1:
-                    widget.render(self.engine)
-                else:
-                    widget.render()
+                try:
+                    sig = inspect.signature(widget.render)
+                    if len(sig.parameters) == 1:
+                        widget.render(self.engine)
+                    else:
+                        widget.render()
+                except Exception as e:
+                    self._logger.error("Error rendering widget %s: %s", type(widget).__name__, e)
             self.engine.present()
-        except Exception:
-            self._logger.exception("Error during rendering")
-
+        except Exception as e:
+            self._logger.error("Error during frame rendering: %s", e)

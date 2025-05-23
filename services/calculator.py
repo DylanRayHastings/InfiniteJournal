@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 Calculator application with GUI and shape generators.
+Fixed to work properly with the journal system.
 """
 
 import os
@@ -16,6 +17,8 @@ import matplotlib.pyplot as plt
 import tkinter as tk
 from tkinter import simpledialog, messagebox
 
+logger = logging.getLogger(__name__)
+
 
 class ConfigError(Exception):
     """Raised when configuration is invalid."""
@@ -24,14 +27,7 @@ class ConfigError(Exception):
 
 @dataclass
 class Config:
-    """
-    Configuration for the calculator application.
-
-    Attributes:
-        debug: Flag to enable debug logging.
-        independent_mode: Flag to run calculator in standalone mode.
-        history_file: Path to JSON file for persisting history.
-    """
+    """Configuration for the calculator application."""
     debug: bool = True
     independent_mode: bool = True
     history_file: str = 'history.json'
@@ -44,7 +40,7 @@ class Config:
             level=log_level,
             format='[%(asctime)s] [%(levelname)s] %(message)s'
         )
-        logging.getLogger().debug("Configuration initialized: %s", self)
+        logger.debug("Calculator configuration initialized: %s", self)
 
     def _validate_history_file(self) -> None:
         """Ensure the history directory exists or can be created."""
@@ -54,16 +50,10 @@ class Config:
 
 
 class History:
-    """
-    Manages persistence of calculation history to a JSON file.
-    """
+    """Manages persistence of calculation history to a JSON file."""
+    
     def __init__(self, path: str):
-        """
-        Initialize history manager.
-
-        Args:
-            path: Path to the history JSON file.
-        """
+        """Initialize history manager."""
         self.path = path
         self.records: List[Dict[str, Any]] = self._load()
 
@@ -76,28 +66,22 @@ class History:
             return []
 
     def add(self, mode: str, expression: str, result: Any) -> None:
-        """
-        Add a record to history and save to file.
-
-        Args:
-            mode: Operation mode (e.g., 'solve', 'plot').
-            expression: Original user expression.
-            result: Result of the operation.
-        """
+        """Add a record to history and save to file."""
         record = {'mode': mode, 'expression': expression, 'result': str(result)}
         self.records.append(record)
         self._save()
 
     def _save(self) -> None:
         """Save current records to the history file."""
-        with open(self.path, 'w', encoding='utf-8') as f:
-            json.dump(self.records, f, indent=2)
+        try:
+            with open(self.path, 'w', encoding='utf-8') as f:
+                json.dump(self.records, f, indent=2)
+        except IOError as e:
+            logger.error("Failed to save history: %s", e)
 
 
 class Calculator:
-    """
-    Performs mathematical operations using Sympy.
-    """
+    """Performs mathematical operations using Sympy."""
 
     TRANSLATIONS = {
         'π': 'pi',
@@ -115,15 +99,7 @@ class Calculator:
 
     @staticmethod
     def translate(expr: str) -> str:
-        """
-        Translate common mathematical symbols to Sympy syntax.
-
-        Args:
-            expr: Raw expression string.
-
-        Returns:
-            Translated expression string.
-        """
+        """Translate common mathematical symbols to Sympy syntax."""
         for key, val in Calculator.TRANSLATIONS.items():
             expr = expr.replace(key, val)
         expr = re.sub(r'(\d)([a-zA-Z])', r'\1*\2', expr)
@@ -134,15 +110,7 @@ class Calculator:
 
     @staticmethod
     def solve_equation(expr: str) -> Tuple[sp.Eq, List[Any]]:
-        """
-        Solve an equation of the form 'lhs=rhs'.
-
-        Args:
-            expr: Equation string.
-
-        Returns:
-            A tuple containing the Sympy Eq object and solutions list.
-        """
+        """Solve an equation of the form 'lhs=rhs'."""
         if '=' not in expr:
             raise ValueError("Expression must contain '=' for solving.")
         lhs, rhs = expr.split('=', 1)
@@ -152,83 +120,35 @@ class Calculator:
 
     @staticmethod
     def simplify_expression(expr: str) -> Any:
-        """
-        Simplify a mathematical expression.
-
-        Args:
-            expr: Expression string.
-
-        Returns:
-            Simplified Sympy expression.
-        """
+        """Simplify a mathematical expression."""
         return sp.simplify(sp.sympify(expr))
 
     @staticmethod
     def expand_expression(expr: str) -> Any:
-        """
-        Expand a mathematical expression.
-
-        Args:
-            expr: Expression string.
-
-        Returns:
-            Expanded Sympy expression.
-        """
+        """Expand a mathematical expression."""
         return sp.expand(sp.sympify(expr))
 
     @staticmethod
     def factor_expression(expr: str) -> Any:
-        """
-        Factor a mathematical expression.
-
-        Args:
-            expr: Expression string.
-
-        Returns:
-            Factored Sympy expression.
-        """
+        """Factor a mathematical expression."""
         return sp.factor(sp.sympify(expr))
 
     @staticmethod
     def differentiate_expression(expr: str) -> Any:
-        """
-        Differentiate an expression with respect to x.
-
-        Args:
-            expr: Expression string.
-
-        Returns:
-            Derivative as a Sympy expression.
-        """
+        """Differentiate an expression with respect to x."""
         return sp.diff(expr, sp.Symbol('x'))
 
     @staticmethod
     def integrate_expression(expr: str) -> Any:
-        """
-        Integrate an expression with respect to x.
-
-        Args:
-            expr: Expression string.
-
-        Returns:
-            Indefinite integral as a Sympy expression.
-        """
+        """Integrate an expression with respect to x."""
         return sp.integrate(expr, sp.Symbol('x'))
 
 
 class CalculatorUI:
-    """
-    Handles user interaction for the calculator via Tkinter dialogs.
-    """
+    """Handles user interaction for the calculator via Tkinter dialogs."""
 
     def __init__(self, calculator: Calculator, history: History):
-        """
-        Initialize the UI with a Calculator and History manager.
-
-        Args:
-            calculator: Calculator instance.
-            history: History manager instance.
-        """
+        """Initialize the UI with a Calculator and History manager."""
         self.calculator = calculator
         self.history = history
         self._modes = {
@@ -254,7 +174,7 @@ class CalculatorUI:
         if not raw_expr:
             return
         expr = self.calculator.translate(raw_expr)
-        logging.getLogger().debug("Translated expression: %s", expr)
+        logger.debug("Translated expression: %s", expr)
         action = self._modes.get(mode.lower())
         if not action:
             messagebox.showerror("Error", f"Invalid mode: {mode}")
@@ -265,9 +185,7 @@ class CalculatorUI:
                 messagebox.showinfo("Result", str(result))
             self.history.add(mode, raw_expr, result or 'plot displayed')
         except Exception as e:
-            logging.getLogger().error(
-                "Error in mode '%s': %s", mode, e, exc_info=True
-            )
+            logger.error("Error in mode '%s': %s", mode, e, exc_info=True)
             messagebox.showerror("Error", str(e))
 
     def _do_solve(self, expr: str) -> str:
@@ -312,9 +230,7 @@ class CalculatorUI:
 
 # Shape generators for InfiniteJournal compatibility
 
-def get_line(
-    x1: int, y1: int, x2: int, y2: int
-) -> List[Tuple[float, float]]:
+def get_line(x1: int, y1: int, x2: int, y2: int) -> List[Tuple[float, float]]:
     """
     Generate interpolated points between two coordinates.
 
@@ -331,17 +247,19 @@ def get_line(
     dx = x2 - x1
     dy = y2 - y1
     steps = max(abs(dx), abs(dy), 1)
+    
     for i in range(steps + 1):
-        t = i / steps
-        points.append((x1 + dx * t, y1 + dy * t))
+        t = i / steps if steps > 0 else 0
+        x = x1 + dx * t
+        y = y1 + dy * t
+        points.append((x, y))
+    
+    logger.debug("Generated line with %d points from (%d,%d) to (%d,%d)", 
+                len(points), x1, y1, x2, y2)
     return points
 
 
-def get_triangle(
-    x1: int, y1: int,
-    x2: int, y2: int,
-    x3: int, y3: int
-) -> List[Tuple[float, float]]:
+def get_triangle(x1: int, y1: int, x2: int, y2: int, x3: int, y3: int) -> List[Tuple[float, float]]:
     """
     Generate outline points of a triangle given three vertices.
 
@@ -353,10 +271,13 @@ def get_triangle(
     Returns:
         List of points outlining the triangle.
     """
-    pts = get_line(x1, y1, x2, y2)
-    pts += get_line(x2, y2, x3, y3)
-    pts += get_line(x3, y3, x1, y1)
-    return pts
+    points = []
+    points.extend(get_line(x1, y1, x2, y2))
+    points.extend(get_line(x2, y2, x3, y3))
+    points.extend(get_line(x3, y3, x1, y1))
+    
+    logger.debug("Generated triangle with %d points", len(points))
+    return points
 
 
 def get_parabola(
@@ -375,8 +296,14 @@ def get_parabola(
     Returns:
         List of (x, y) tuples.
     """
+    if num <= 0:
+        num = 100
+        
     xs = np.linspace(x_min, x_max, num)
-    return [(float(x), float(a * x**2 + b * x + c)) for x in xs]
+    points = [(float(x), float(a * x**2 + b * x + c)) for x in xs]
+    
+    logger.debug("Generated parabola with %d points", len(points))
+    return points
 
 
 def main() -> None:

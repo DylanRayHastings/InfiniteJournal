@@ -2,35 +2,44 @@
 Configuration Module
 
 Defines the `Settings` dataclass containing all application-wide constants.
-Easily extensible to support environment variables or config files.
+Supports environment variables and validation.
 """
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import ClassVar, List, Tuple
+from typing import ClassVar, List, Tuple, Optional
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+class ConfigurationError(Exception):
+    """Raised when configuration is invalid."""
+    pass
+
 
 @dataclass(frozen=True)
 class Settings:
     """
     Application-wide settings and constants.
-    To add dynamic loading (from ./config), modify the `load` classmethod.
+    Loads from environment variables with fallback to defaults.
     """
     # Rendering / window
-    WIDTH: int = 1280                 # Window width (pixels)
-    HEIGHT: int = 720                 # Window height (pixels)
-    TITLE: str = "InfiniteJournal"    # Window title
-    FPS: int = 60                     # Target frames per second
+    WIDTH: int = field(default_factory=lambda: int(os.getenv("IJ_WIDTH", "1280")))
+    HEIGHT: int = field(default_factory=lambda: int(os.getenv("IJ_HEIGHT", "720")))
+    TITLE: str = field(default_factory=lambda: os.getenv("IJ_TITLE", "InfiniteJournal"))
+    FPS: int = field(default_factory=lambda: int(os.getenv("IJ_FPS", "60")))
 
     # Tools
-    DEFAULT_TOOL: str = "brush"       # Default drawing tool
+    DEFAULT_TOOL: str = field(default_factory=lambda: os.getenv("IJ_DEFAULT_TOOL", "brush"))
     VALID_TOOLS: ClassVar[List[str]] = [
         "brush", "eraser", "line", "rect", "circle", "parabola"
     ]
 
     # Brush
-    BRUSH_SIZE_MIN: int = 1           # Minimum brush size (pixels)
-    BRUSH_SIZE_MAX: int = 100         # Maximum brush size (pixels)
+    BRUSH_SIZE_MIN: int = field(default_factory=lambda: int(os.getenv("IJ_BRUSH_MIN", "1")))
+    BRUSH_SIZE_MAX: int = field(default_factory=lambda: int(os.getenv("IJ_BRUSH_MAX", "100")))
 
     # Colors
     NEON_COLORS: ClassVar[List[Tuple[int, int, int]]] = [
@@ -42,41 +51,76 @@ class Settings:
     ]
 
     # Logging & data
-    DEBUG: bool = False               # Enable debug output
-    LOG_DIR: Path = Path("./logs")   # Directory for log files
-    DATABASE_URL: str = "./data/database.json"  # File path for JSON-backed storage
-    DATA_PATH: Path = Path("./data") # Path for journal data
+    DEBUG: bool = field(default_factory=lambda: os.getenv("IJ_DEBUG", "false").lower() == "true")
+    LOG_DIR: Path = field(default_factory=lambda: Path(os.getenv("IJ_LOG_DIR", "./logs")))
+    DATABASE_URL: str = field(default_factory=lambda: os.getenv("DATABASE_URL", "sqlite:///./data/journal.db"))
+    DATA_PATH: Path = field(default_factory=lambda: Path(os.getenv("IJ_DATA_PATH", "./data")))
 
-    # Class-level config for logging
+    # Class-level config for logging and limits
     class Config:
         LOG_MAX_BYTES: ClassVar[int] = 1_048_576
         LOG_BACKUP_COUNT: ClassVar[int] = 5
-        MIN_SIZE: ClassVar[int] = 100
-        MAX_SIZE: ClassVar[int] = 5000
+        # Window size limits
+        MIN_WINDOW_SIZE: ClassVar[int] = 100
+        MAX_WINDOW_SIZE: ClassVar[int] = 5000
+        # Brush size limits
+        MIN_BRUSH_SIZE: ClassVar[int] = 1
+        MAX_BRUSH_SIZE: ClassVar[int] = 200
+        # FPS limits
+        MIN_FPS: ClassVar[int] = 1
+        MAX_FPS: ClassVar[int] = 240
+
+    def __post_init__(self) -> None:
+        """Validate configuration after initialization."""
+        self._validate()
+
+    def _validate(self) -> None:
+        """Validate configuration values."""
+        # Validate window dimensions
+        if not (self.Config.MIN_WINDOW_SIZE <= self.WIDTH <= self.Config.MAX_WINDOW_SIZE):
+            raise ConfigurationError(f"Invalid window width: {self.WIDTH} (must be {self.Config.MIN_WINDOW_SIZE}-{self.Config.MAX_WINDOW_SIZE})")
+        
+        if not (self.Config.MIN_WINDOW_SIZE <= self.HEIGHT <= self.Config.MAX_WINDOW_SIZE):
+            raise ConfigurationError(f"Invalid window height: {self.HEIGHT} (must be {self.Config.MIN_WINDOW_SIZE}-{self.Config.MAX_WINDOW_SIZE})")
+        
+        # Validate FPS
+        if not (self.Config.MIN_FPS <= self.FPS <= self.Config.MAX_FPS):
+            raise ConfigurationError(f"Invalid FPS: {self.FPS} (must be {self.Config.MIN_FPS}-{self.Config.MAX_FPS})")
+            
+        # Validate default tool
+        if self.DEFAULT_TOOL not in self.VALID_TOOLS:
+            raise ConfigurationError(f"Invalid default tool: {self.DEFAULT_TOOL} (must be one of {self.VALID_TOOLS})")
+            
+        # Validate brush sizes
+        if not (self.Config.MIN_BRUSH_SIZE <= self.BRUSH_SIZE_MIN <= self.Config.MAX_BRUSH_SIZE):
+            raise ConfigurationError(f"Invalid brush minimum size: {self.BRUSH_SIZE_MIN} (must be {self.Config.MIN_BRUSH_SIZE}-{self.Config.MAX_BRUSH_SIZE})")
+            
+        if not (self.Config.MIN_BRUSH_SIZE <= self.BRUSH_SIZE_MAX <= self.Config.MAX_BRUSH_SIZE):
+            raise ConfigurationError(f"Invalid brush maximum size: {self.BRUSH_SIZE_MAX} (must be {self.Config.MIN_BRUSH_SIZE}-{self.Config.MAX_BRUSH_SIZE})")
+            
+        if self.BRUSH_SIZE_MIN > self.BRUSH_SIZE_MAX:
+            raise ConfigurationError(f"Brush minimum size ({self.BRUSH_SIZE_MIN}) cannot be greater than maximum size ({self.BRUSH_SIZE_MAX})")
+
+        # Validate title
+        if not self.TITLE or not self.TITLE.strip():
+            raise ConfigurationError("Window title cannot be empty")
 
     @classmethod
     def load(cls) -> "Settings":
         """
-        Loads settings from environment variables or config file if implemented.
-        Currently returns only the defaults defined in the dataclass.
+        Load settings with validation.
 
         Returns:
-            Settings: An instance with configuration values.
+            Settings: Validated configuration instance.
+            
+        Raises:
+            ConfigurationError: If configuration is invalid.
         """
-        # Example overrides (uncomment to enable):
-        # width = int(os.getenv("INFINITE_JOURNAL_WIDTH", cls.WIDTH))
-        # height = int(os.getenv("INFINITE_JOURNAL_HEIGHT", cls.HEIGHT))
-        # title = os.getenv("INFINITE_JOURNAL_TITLE", cls.TITLE)
-        # fps = int(os.getenv("INFINITE_JOURNAL_FPS", cls.FPS))
-        # default_tool = os.getenv("INFINITE_JOURNAL_DEFAULT_TOOL", cls.DEFAULT_TOOL)
-        # return cls(
-        #     width, height, title, fps,
-        #     default_tool,
-        #     cls.VALID_TOOLS,
-        #     cls.BRUSH_SIZE_MIN, cls.BRUSH_SIZE_MAX,
-        #     cls.NEON_COLORS,
-        #     debug, log_dir, database_url, data_path
-        # )
-
-        # For now, just return defaults
-        return cls()
+        try:
+            settings = cls()
+            logger.info("Configuration loaded successfully")
+            logger.debug("Settings: WIDTH=%d, HEIGHT=%d, FPS=%d, TOOL=%s", 
+                        settings.WIDTH, settings.HEIGHT, settings.FPS, settings.DEFAULT_TOOL)
+            return settings
+        except (ValueError, TypeError) as e:
+            raise ConfigurationError(f"Configuration parsing error: {e}") from e

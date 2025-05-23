@@ -1,13 +1,19 @@
+"""Journal service for recording, persisting, and rendering drawing strokes."""
+
 from core.event_bus import EventBus
 from core.drawing.models import Page, Point
 from services.database import CanvasDatabase
 from services.tools import ToolService
 from services.calculator import get_line, get_triangle, get_parabola
 import logging
+from typing import List, Tuple, Any
 
 # Constants for tool modes
 _TOOL_MODES_SIMPLE = {'brush', 'eraser'}
 _SHAPED_MODES = {'line', 'rect', 'circle', 'triangle', 'parabola'}
+
+logger = logging.getLogger(__name__)
+
 
 class JournalService:
     """
@@ -20,7 +26,6 @@ class JournalService:
         _page: Current Page containing strokes.
         _current_stroke: Stroke being drawn.
         _start_point: Starting Point of current stroke.
-        _logger: Logger for internal diagnostics.
     """
 
     def __init__(self, bus: EventBus, tool_service: ToolService, database: CanvasDatabase) -> None:
@@ -48,15 +53,18 @@ class JournalService:
         self._page = Page()
         self._current_stroke = None
         self._start_point = None
-        self._logger = logging.getLogger(__name__)
+        self._last_point = None
+        logger.info("JournalService initialized")
 
     def reset(self) -> None:
         """Clear current page and reset state."""
         self._page = Page()
         self._current_stroke = None
         self._start_point = None
+        self._last_point = None
+        logger.info("Journal reset")
 
-    def start_stroke(self, x: int, y: int, width: int, color: tuple) -> None:
+    def start_stroke(self, x: int, y: int, width: int, color: Tuple[int, int, int]) -> None:
         """
         Begin a new stroke at the given coordinates.
 
@@ -70,10 +78,13 @@ class JournalService:
         stroke_color = (0, 0, 0) if mode == 'eraser' else color
 
         self._current_stroke = self._page.new_stroke(stroke_color)
-        self._start_point = Point(x, y, width)
+        self._start_point = Point(x, y, 0, width)  # z=0 for 2D drawing
+        self._last_point = self._start_point
 
         if mode in _TOOL_MODES_SIMPLE:
             self._add_point(x, y, width)
+        
+        logger.debug("Started stroke at (%d, %d) with mode %s", x, y, mode)
 
     def add_point(self, x: int, y: int, width: int) -> None:
         """
@@ -85,22 +96,26 @@ class JournalService:
             width: Stroke width.
         """
         if not self._current_stroke:
-            self._logger.debug('add_point called without active stroke')
+            logger.debug('add_point called without active stroke')
             return
 
         if self._tool_service.current_tool_mode not in _TOOL_MODES_SIMPLE:
+            # For shaped tools, just update the end point
+            self._last_point = Point(x, y, 0, width)
             return
 
-        point = Point(x, y, width)
+        point = Point(x, y, 0, width)
         self._current_stroke.add_point(point)
+        self._last_point = point
         self._bus.publish('stroke_added')
+        logger.debug("Added point (%d, %d) to stroke", x, y)
 
     def end_stroke(self) -> None:
         """
         Finalize and persist the current stroke based on tool mode.
         """
         if not self._current_stroke or not self._start_point:
-            self._logger.debug('end_stroke called without active stroke')
+            logger.debug('end_stroke called without active stroke')
             return
 
         mode = self._tool_service.current_tool_mode
@@ -109,21 +124,50 @@ class JournalService:
                 self._apply_shape(mode)
             self._database.add_stroke(self._current_stroke)
             self._bus.publish('stroke_added')
+            logger.info("Stroke completed and saved with mode %s", mode)
         except Exception as e:
-            self._logger.error('Failed to end stroke: %s', e, exc_info=True)
+            logger.error('Failed to end stroke: %s', e, exc_info=True)
         finally:
             self._current_stroke = None
             self._start_point = None
+            self._last_point = None
 
-    def render(self, renderer) -> None:
+    def render(self, renderer: Any) -> None:
         """
         Render all strokes on the current page.
 
         Args:
             renderer: Renderer with draw_stroke method.
         """
+        if not self._page or not self._page.strokes:
+            return
+            
         for stroke in self._page.strokes:
-            renderer.draw_stroke(stroke.points, stroke.color)
+            if not stroke.points:
+                continue
+                
+            try:
+                # Convert Point objects to simple (x, y) tuples for renderer
+                points = []
+                for p in stroke.points:
+                    if hasattr(p, 'x') and hasattr(p, 'y'):
+                        points.append((float(p.x), float(p.y)))
+                    elif isinstance(p, (tuple, list)) and len(p) >= 2:
+                        points.append((float(p[0]), float(p[1])))
+                    else:
+                        logger.warning("Invalid point format in stroke: %r", p)
+                        continue
+                
+                if points and hasattr(renderer, 'draw_stroke'):
+                    # Ensure color is a valid tuple
+                    color = stroke.color if isinstance(stroke.color, (tuple, list)) and len(stroke.color) == 3 else (255, 255, 255)
+                    renderer.draw_stroke(points, color, 3)
+                    
+            except Exception as e:
+                logger.error("Error rendering stroke: %s", e)
+                continue  # Skip this stroke but continue with others
+                
+        logger.debug("Rendered %d strokes", len(self._page.strokes))
 
     def _add_point(self, x: int, y: int, width: int) -> None:
         """Internal helper to add a point to current stroke."""
@@ -136,13 +180,24 @@ class JournalService:
         Args:
             mode: Tool mode indicating shape type.
         """
+        if not self._last_point:
+            # If no end point, use start point
+            self._last_point = self._start_point
+            
         start = self._start_point
-        last = self._current_stroke.points[-1] if self._current_stroke.points else start
-        shape_points = self._calculate_shape(mode, start.x, start.y, last.x, last.y)
-        self._current_stroke.points = shape_points
+        end = self._last_point
+        
+        try:
+            shape_points = self._calculate_shape(mode, start.x, start.y, end.x, end.y)
+            self._current_stroke.points = shape_points
+            logger.debug("Applied shape %s with %d points", mode, len(shape_points))
+        except Exception as e:
+            logger.error("Error applying shape %s: %s", mode, e)
+            # Fallback to simple line
+            self._current_stroke.points = [start, end]
 
     @staticmethod
-    def _calculate_shape(mode: str, x0: int, y0: int, x1: int, y1: int) -> list:
+    def _calculate_shape(mode: str, x0: float, y0: float, x1: float, y1: float) -> List[Point]:
         """
         Return points for shapes based on mode.
 
@@ -156,13 +211,23 @@ class JournalService:
         Returns:
             List[Point]: Points defining the shape.
         """
-        start = Point(x0, y0, 1)
-        end = Point(x1, y1, 1)
-        if mode == 'line':
-            return get_line(start, end)
-        if mode == 'triangle':
-            return get_triangle(start, end)
-        if mode == 'parabola':
-            return get_parabola(start, end)
-        # TODO: Implement rect and circle in calculator module
-        return [start, end]
+        try:
+            if mode == 'line':
+                # Generate line points using calculator
+                raw_points = get_line(int(x0), int(y0), int(x1), int(y1))
+                return [Point(x, y, 0, 1) for x, y in raw_points]
+            elif mode == 'triangle':
+                # Generate triangle with third point offset
+                x2, y2 = x1, y0  # Right angle triangle
+                raw_points = get_triangle(int(x0), int(y0), int(x1), int(y1), int(x2), int(y2))
+                return [Point(x, y, 0, 1) for x, y in raw_points]
+            elif mode == 'parabola':
+                # Generate parabola points
+                raw_points = get_parabola(1.0, 0.0, 0.0, float(min(x0, x1)), float(max(x0, x1)), 50)
+                return [Point(x, y, 0, 1) for x, y in raw_points]
+            else:
+                # Fallback to simple line
+                return [Point(x0, y0, 0, 1), Point(x1, y1, 0, 1)]
+        except Exception as e:
+            logger.error("Error calculating shape %s: %s", mode, e)
+            return [Point(x0, y0, 0, 1), Point(x1, y1, 0, 1)]
