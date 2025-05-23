@@ -7,14 +7,12 @@ from ..core import UniversalService, ServiceConfiguration
 
 logger = logging.getLogger(__name__)
 
-
 @dataclass
 class DrawingConfiguration:
     """Drawing configuration."""
     stroke_smoothing: bool = True
     default_color: Tuple[int, int, int] = (255, 255, 255)
     default_width: int = 3
-
 
 class CoordinateSystem:
     """Simple coordinate system."""
@@ -23,7 +21,6 @@ class CoordinateSystem:
         self.screen_width = width
         self.screen_height = height
 
-
 @dataclass
 class Stroke:
     """Drawing stroke."""
@@ -31,7 +28,6 @@ class Stroke:
     color: Tuple[int, int, int]
     width: int
     completed: bool = False
-
 
 class DrawingEngine(UniversalService):
     """Simplified drawing engine."""
@@ -133,7 +129,6 @@ class DrawingEngine(UniversalService):
             logger.debug(f"Drew {lines_drawn} lines for stroke with {len(points)} points")
         else:
             logger.warning("Backend does not have draw_line method")
-
 
 def create_drawing_engine(backend, validation_service=None, event_bus=None):
     """Create drawing engine."""

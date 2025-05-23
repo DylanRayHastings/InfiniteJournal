@@ -11,7 +11,6 @@ class App:
     def run(self):
         return self.simple_app.run()
 
-
 class SimpleApp(BaseSimpleApp):
     """Simple app export."""
     pass

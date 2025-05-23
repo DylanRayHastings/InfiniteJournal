@@ -3,11 +3,11 @@
 import time
 import logging
 from dataclasses import dataclass
+from typing import Dict, Any
 from .core import EventBus, ValidationService, create_memory_storage
 from .drawing import create_drawing_engine, create_tool_manager
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class ApplicationSettings:
@@ -17,7 +17,6 @@ class ApplicationSettings:
     window_title: str = "Application"
     target_fps: int = 60
     debug_mode: bool = False
-
 
 class UnifiedApplication:
     """Simplified unified application."""
@@ -145,7 +144,7 @@ class UnifiedApplication:
             elif event_type == 'KEY_PRESS' or event_type == 'KEYDOWN':
                 key = event_data.get('key', '')
                 self.event_bus.publish('key_pressed', {'key': key})
-                    
+                
     def _handle_quit(self, data):
         """Handle quit."""
         self.running = False
@@ -174,8 +173,6 @@ class UnifiedApplication:
         if self.is_drawing:
             pos = data.get('pos', (0, 0))
             self.drawing_engine.add_stroke_point(pos)
-            # logger.debug(f"Added stroke point at {pos}")  # Too verbose for move events
-
 
 class SimpleApp:
     """Legacy compatibility."""
@@ -195,7 +192,6 @@ class SimpleApp:
         """Run application."""
         self.app.initialize()
         self.app.run()
-
 
 def create_application(settings, backend):
     """Create application."""

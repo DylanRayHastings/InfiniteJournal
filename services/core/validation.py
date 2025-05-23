@@ -4,11 +4,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 class ValidationError(Exception):
     """Validation error."""
     pass
-
 
 class ValidationService:
     """Simple validation service."""
@@ -49,14 +47,12 @@ class ValidationService:
         except:
             raise ValidationError("Invalid brush width")
 
-
 def validate_coordinate(x, y):
     """Validate coordinates."""
     try:
         return int(x), int(y)
     except:
         raise ValidationError("Invalid coordinates")
-
 
 def validate_color(color):
     """Validate color."""
@@ -67,7 +63,6 @@ def validate_color(color):
             pass
     raise ValidationError("Invalid color")
 
-
 def validate_brush_width(width):
     """Validate brush width."""
     try:
@@ -76,14 +71,12 @@ def validate_brush_width(width):
     except:
         raise ValidationError("Invalid brush width")
 
-
 def validate_tool_key(tool):
     """Validate tool key."""
     valid_tools = ["brush", "eraser", "line", "rect", "circle"]
     if str(tool).lower() in valid_tools:
         return str(tool).lower()
     raise ValidationError("Invalid tool")
-
 
 def create_validator_chain(*validators):
     """Create validator chain."""

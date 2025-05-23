@@ -7,14 +7,12 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-
 @dataclass
 class ServiceConfiguration:
     """Service configuration."""
     service_name: str
     debug_mode: bool = False
     auto_start: bool = True
-
 
 class UniversalService(ABC):
     """Base service class."""
@@ -54,7 +52,6 @@ class UniversalService(ABC):
         """Clean up service implementation."""
         pass
 
-
 class ServiceRegistry:
     """Simple service registry."""
     
@@ -67,14 +64,12 @@ class ServiceRegistry:
     def get_service(self, name):
         return self.services.get(name)
 
-
 class ServiceFactory:
     """Simple service factory."""
     
     @staticmethod
     def create_service(service_class, config, **kwargs):
         return service_class(config, **kwargs)
-
 
 class ServiceLifecycleManager:
     """Service lifecycle manager."""
@@ -98,7 +93,6 @@ class ServiceLifecycleManager:
                 service.stop()
             except Exception as e:
                 logger.error(f"Failed to stop service: {e}")
-
 
 def create_production_service(service_class, service_name, **kwargs):
     """Create production service."""
