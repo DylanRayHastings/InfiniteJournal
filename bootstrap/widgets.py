@@ -30,7 +30,7 @@ def init_widgets(
     
     # Canvas widget for drawing (middle layer)
     try:
-        from ui.drawing_interface import CanvasWidget
+        from interface.framework import CanvasWidget
         canvas_widget = CanvasWidget(journal_service, engine, bus)
         widgets.append(canvas_widget)
         logger.info("Canvas widget added")
@@ -39,7 +39,7 @@ def init_widgets(
     
     # CRITICAL FIX: Hotbar widget (top layer - MUST BE VISIBLE)
     try:
-        from ui.hotbar import HotbarWidget
+        from interface.framework import HotbarWidget
         hotbar_widget = HotbarWidget(tool_service, engine, bus)
         widgets.append(hotbar_widget)
         logger.info("HOTBAR widget added - should be VISIBLE")
@@ -56,7 +56,7 @@ def init_widgets(
     # CRITICAL FIX: Remove status bar to eliminate "Time" display
     # Status bar widget is COMMENTED OUT to remove time display
     # try:
-    #     from ui.status_bar import StatusBar
+    #     from interface.status_bar import StatusBar
     #     status_widget = StatusBar(clock, engine, settings)
     #     widgets.append(status_widget)
     #     logger.info("Status bar widget added")

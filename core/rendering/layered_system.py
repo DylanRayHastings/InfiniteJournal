@@ -263,7 +263,7 @@ class LayeredRenderingSystem:
             self.layers[LayerType.DRAWING] = RenderLayer(draw_config, self.width, self.height)
             
             # UI layer - for interface elements with transparency
-            ui_config = LayerConfig("ui", LayerType.UI, alpha=240, blend_mode=pygame.BLEND_ALPHA_SDL2)
+            ui_config = LayerConfig("interface", LayerType.UI, alpha=240, blend_mode=pygame.BLEND_ALPHA_SDL2)
             self.layers[LayerType.UI] = RenderLayer(ui_config, self.width, self.height)
             
             # Add fixed grid to background layer

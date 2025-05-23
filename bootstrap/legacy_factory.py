@@ -28,7 +28,7 @@ def compose_app(settings, bus=None):
     
     widgets = init_widgets(journal_service, engine, bus, clock, settings, tool_service)
 
-    from services.app import App
+    from services.copy.app import App
     app = App(
         settings=settings,
         engine=engine,

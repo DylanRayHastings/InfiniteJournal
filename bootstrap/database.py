@@ -9,7 +9,7 @@ def init_database(database_url: str):
     """Initialize database and register its close() at exit."""
     validate_database_url(database_url)
     try:
-        from services.database import CanvasDatabase
+        from services.core.storage import CanvasDatabase
         db = CanvasDatabase(database_url)
     except Exception as e:
         raise StartupError(f"Database init failed: {e}") from e
