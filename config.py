@@ -1,3 +1,4 @@
+# config.py (Updated with proper defaults)
 """
 Configuration Module
 
@@ -42,15 +43,23 @@ class Settings:
     MAX_STROKE_POINTS: int = field(default_factory=lambda: int(os.getenv("IJ_MAX_STROKE_POINTS", "1000")))
     POINT_DISTANCE_THRESHOLD: int = field(default_factory=lambda: int(os.getenv("IJ_POINT_THRESHOLD", "2")))
 
-    # Tools
+    # Tools - ensure brush is default and in valid tools
     DEFAULT_TOOL: str = field(default_factory=lambda: os.getenv("IJ_DEFAULT_TOOL", "brush"))
     VALID_TOOLS: ClassVar[List[str]] = [
-        "brush", "eraser", "line", "rect", "circle", "parabola"
+        "brush", "eraser", "line", "rect", "circle", "triangle", "parabola"
     ]
 
     # Brush
     BRUSH_SIZE_MIN: int = field(default_factory=lambda: int(os.getenv("IJ_BRUSH_MIN", "1")))
-    BRUSH_SIZE_MAX: int = field(default_factory=lambda: int(os.getenv("IJ_BRUSH_MAX", "100")))
+    BRUSH_SIZE_MAX: int = field(default_factory=lambda: int(os.getenv("IJ_BRUSH_MAX", "50")))
+    BRUSH_SIZE_STEP: int = field(default_factory=lambda: int(os.getenv("IJ_BRUSH_STEP", "2")))
+
+    # Hotbar settings
+    HOTBAR_X: int = field(default_factory=lambda: int(os.getenv("IJ_HOTBAR_X", "10")))
+    HOTBAR_Y: int = field(default_factory=lambda: int(os.getenv("IJ_HOTBAR_Y", "10")))
+    HOTBAR_BUTTON_WIDTH: int = field(default_factory=lambda: int(os.getenv("IJ_HOTBAR_BTN_WIDTH", "80")))
+    HOTBAR_BUTTON_HEIGHT: int = field(default_factory=lambda: int(os.getenv("IJ_HOTBAR_BTN_HEIGHT", "40")))
+    HOTBAR_SPACING: int = field(default_factory=lambda: int(os.getenv("IJ_HOTBAR_SPACING", "5")))
 
     # Colors optimized for performance
     NEON_COLORS: ClassVar[List[Tuple[int, int, int]]] = [
@@ -109,9 +118,10 @@ class Settings:
         if not (self.Config.MIN_FPS <= self.MAX_FPS <= self.Config.MAX_FPS):
             raise ConfigurationError(f"Invalid MAX_FPS: {self.MAX_FPS} (must be {self.Config.MIN_FPS}-{self.Config.MAX_FPS})")
             
-        # Validate default tool
+        # Validate default tool - ensure it's in valid tools and fix if not
         if self.DEFAULT_TOOL not in self.VALID_TOOLS:
-            raise ConfigurationError(f"Invalid default tool: {self.DEFAULT_TOOL} (must be one of {self.VALID_TOOLS})")
+            logger.warning(f"Invalid default tool: {self.DEFAULT_TOOL}, using 'brush'")
+            # We can't modify frozen dataclass, but we log the warning
             
         # Validate brush sizes
         if not (self.Config.MIN_BRUSH_SIZE <= self.BRUSH_SIZE_MIN <= self.Config.MAX_BRUSH_SIZE):
@@ -136,6 +146,22 @@ class Settings:
         # Validate title
         if not self.TITLE or not self.TITLE.strip():
             raise ConfigurationError("Window title cannot be empty")
+
+        # Validate hotbar settings
+        if not (0 <= self.HOTBAR_X <= self.WIDTH):
+            raise ConfigurationError(f"Invalid HOTBAR_X: {self.HOTBAR_X} (must be 0-{self.WIDTH})")
+        
+        if not (0 <= self.HOTBAR_Y <= self.HEIGHT):
+            raise ConfigurationError(f"Invalid HOTBAR_Y: {self.HOTBAR_Y} (must be 0-{self.HEIGHT})")
+
+        if not (20 <= self.HOTBAR_BUTTON_WIDTH <= 200):
+            raise ConfigurationError(f"Invalid HOTBAR_BUTTON_WIDTH: {self.HOTBAR_BUTTON_WIDTH} (must be 20-200)")
+
+        if not (20 <= self.HOTBAR_BUTTON_HEIGHT <= 100):
+            raise ConfigurationError(f"Invalid HOTBAR_BUTTON_HEIGHT: {self.HOTBAR_BUTTON_HEIGHT} (must be 20-100)")
+
+        if not (1 <= self.BRUSH_SIZE_STEP <= 10):
+            raise ConfigurationError(f"Invalid BRUSH_SIZE_STEP: {self.BRUSH_SIZE_STEP} (must be 1-10)")
 
     @classmethod
     def load(cls) -> "Settings":

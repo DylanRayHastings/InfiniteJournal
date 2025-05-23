@@ -1,4 +1,5 @@
-"""Data models for drawing primitives, with JSON persistence."""
+# core/drawing/models.py (Fixed Point width handling)
+"""Data models for drawing primitives, with JSON persistence and proper width handling."""
 
 import json
 import logging
@@ -61,10 +62,12 @@ class Stroke:
     Attributes:
         color: RGB tuple, each 0–255.
         points: Ordered list of Point instances.
+        width: Default width for this stroke (used for rendering optimization).
     """
 
     color: Tuple[int, int, int]
     points: List[Point] = field(default_factory=list)
+    width: int = 3  # Default stroke width
 
     def __post_init__(self) -> None:
         """Validate that color is a 3-tuple of ints in 0–255."""
@@ -81,12 +84,15 @@ class Stroke:
             point: Point to append.
         """
         self.points.append(point)
-        logger.debug("Added Point to stroke %s: %s", self.color, point)
+        # Update stroke width to match the point width (for consistency)
+        self.width = point.width
+        logger.debug("Added Point to stroke %s: %s (width: %d)", self.color, point, point.width)
 
     def to_dict(self) -> dict:
         """Serialize this Stroke to a dict."""
         return {
             "color": self.color,
+            "width": self.width,
             "points": [pt.to_dict() for pt in self.points],
         }
 
@@ -95,12 +101,12 @@ class Stroke:
         """Create a Stroke from its dict representation.
 
         Args:
-            data: Dict with 'color' and 'points'.
+            data: Dict with 'color', 'width', and 'points'.
 
         Returns:
             A new Stroke instance.
         """
-        stroke = Stroke(color=tuple(data["color"]))
+        stroke = Stroke(color=tuple(data["color"]), width=data.get("width", 3))
         for pt_data in data["points"]:
             stroke.add_point(Point.from_dict(pt_data))
         return stroke
@@ -112,18 +118,19 @@ class Page:
 
     strokes: List[Stroke] = field(default_factory=list)
 
-    def new_stroke(self, color: Tuple[int, int, int]) -> Stroke:
-        """Start a new Stroke with the given color and add it to this Page.
+    def new_stroke(self, color: Tuple[int, int, int], width: int = 3) -> Stroke:
+        """Start a new Stroke with the given color and width, add it to this Page.
 
         Args:
             color: RGB tuple.
+            width: Default width for the stroke.
 
         Returns:
             The newly created Stroke.
         """
-        stroke = Stroke(color=color)
+        stroke = Stroke(color=color, width=width)
         self.strokes.append(stroke)
-        logger.info("Started new stroke with color %s", color)
+        logger.info("Started new stroke with color %s, width %d", color, width)
         return stroke
 
     def to_dict(self) -> dict:

@@ -1,13 +1,15 @@
+# services/calculator.py (Enhanced with missing shape functions)
 #!/usr/bin/env python3
 """
 Calculator application with GUI and shape generators.
-Fixed to work properly with the journal system.
+Enhanced with rectangle and circle generation functions.
 """
 
 import os
 import json
 import logging
 import re
+import math
 from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
 
@@ -259,6 +261,62 @@ def get_line(x1: int, y1: int, x2: int, y2: int) -> List[Tuple[float, float]]:
     return points
 
 
+def get_rectangle(x1: int, y1: int, x2: int, y2: int) -> List[Tuple[float, float]]:
+    """
+    Generate outline points of a rectangle given two corner points.
+
+    Args:
+        x1, y1: First corner.
+        x2, y2: Opposite corner.
+
+    Returns:
+        List of points outlining the rectangle.
+    """
+    # Ensure proper ordering
+    min_x, max_x = min(x1, x2), max(x1, x2)
+    min_y, max_y = min(y1, y2), max(y1, y2)
+    
+    points = []
+    # Top edge
+    points.extend(get_line(min_x, min_y, max_x, min_y))
+    # Right edge
+    points.extend(get_line(max_x, min_y, max_x, max_y))
+    # Bottom edge
+    points.extend(get_line(max_x, max_y, min_x, max_y))
+    # Left edge
+    points.extend(get_line(min_x, max_y, min_x, min_y))
+    
+    logger.debug("Generated rectangle with %d points", len(points))
+    return points
+
+
+def get_circle(center_x: int, center_y: int, radius: int, num_points: int = 100) -> List[Tuple[float, float]]:
+    """
+    Generate points for a circle outline.
+
+    Args:
+        center_x: Circle center X coordinate.
+        center_y: Circle center Y coordinate.
+        radius: Circle radius.
+        num_points: Number of points to generate.
+
+    Returns:
+        List of (x, y) tuples forming a circle.
+    """
+    if radius <= 0:
+        return [(float(center_x), float(center_y))]
+    
+    points = []
+    for i in range(num_points + 1):  # +1 to close the circle
+        angle = 2 * math.pi * i / num_points
+        x = center_x + radius * math.cos(angle)
+        y = center_y + radius * math.sin(angle)
+        points.append((float(x), float(y)))
+    
+    logger.debug("Generated circle with %d points, radius %d", len(points), radius)
+    return points
+
+
 def get_triangle(x1: int, y1: int, x2: int, y2: int, x3: int, y3: int) -> List[Tuple[float, float]]:
     """
     Generate outline points of a triangle given three vertices.
@@ -282,7 +340,7 @@ def get_triangle(x1: int, y1: int, x2: int, y2: int, x3: int, y3: int) -> List[T
 
 def get_parabola(
     a: float, b: float, c: float,
-    x_min: float = -10, x_max: float = 10, num: int = 100
+    x_min: float = -10, x_max: float = 10, num: int = 50
 ) -> List[Tuple[float, float]]:
     """
     Generate points for the parabola y = a*x^2 + b*x + c.
@@ -297,7 +355,7 @@ def get_parabola(
         List of (x, y) tuples.
     """
     if num <= 0:
-        num = 100
+        num = 50
         
     xs = np.linspace(x_min, x_max, num)
     points = [(float(x), float(a * x**2 + b * x + c)) for x in xs]

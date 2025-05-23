@@ -1,3 +1,4 @@
+# bootstrap/factory.py (Updated to ensure proper tool initialization)
 from pathlib import Path
 import logging
 from core.event_bus import EventBus
@@ -20,6 +21,11 @@ def compose_app(settings, bus=None):
     repo, exporter, tool_service, journal_service, undo_service = init_services(
         settings.DATA_PATH, settings, bus, database
     )
+    
+    # Ensure tool service starts with correct default tool
+    if tool_service.current_tool_mode not in settings.VALID_TOOLS:
+        tool_service.set_mode("brush")  # Force to brush if invalid
+    
     widgets = init_widgets(journal_service, engine, bus, clock, settings, tool_service)
 
     from services.app import App
@@ -38,5 +44,5 @@ def compose_app(settings, bus=None):
     )
     if settings.DEBUG:
         ic(app)
-    logger.info("Application composed successfully")
+    logger.info("Application composed successfully with tool: %s", tool_service.current_tool_mode)
     return app

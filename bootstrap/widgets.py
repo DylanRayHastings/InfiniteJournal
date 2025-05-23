@@ -1,3 +1,4 @@
+# bootstrap/widgets.py (Updated)
 import logging
 from typing import Any, List
 
@@ -13,13 +14,13 @@ def init_widgets(
 ) -> List[Any]:
     """Instantiate UI widgets in order."""
     from ui.canvas_widget import CanvasWidget
-    from ui.toolbar import Toolbar
+    from ui.hotbar import HotbarWidget
     from ui.status_bar import StatusBar
     from ui.popup_manager import PopupManager
 
     widgets = [
         CanvasWidget(journal_service, engine, bus),
-        Toolbar(tool_service, engine, bus),
+        HotbarWidget(tool_service, engine, bus),
         StatusBar(clock, engine, settings),
         PopupManager(bus, engine, clock),
     ]

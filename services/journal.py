@@ -1,13 +1,16 @@
-"""Journal service for recording, persisting, and rendering drawing strokes with persistent visibility."""
+# services/journal.py (Fixed brush width persistence and preview system)
+"""Journal service with fixed brush width persistence and robust shape preview."""
 
 from core.event_bus import EventBus
 from core.drawing.models import Page, Point
+from core.interfaces import Stroke
 from services.database import CanvasDatabase
 from services.tools import ToolService
-from services.calculator import get_line, get_triangle, get_parabola
+from services.calculator import get_line, get_triangle, get_parabola, get_rectangle, get_circle
 import logging
 import time
-from typing import List, Tuple, Any
+import math
+from typing import List, Tuple, Any, Optional
 
 # Constants for tool modes
 _TOOL_MODES_SIMPLE = {'brush', 'eraser'}
@@ -18,29 +21,12 @@ logger = logging.getLogger(__name__)
 
 class JournalService:
     """
-    Service for recording, persisting, and rendering drawing strokes with persistent visibility.
-
-    Attributes:
-        _bus: Event bus for publishing stroke events.
-        _tool_service: Provides the current drawing tool mode.
-        _database: CanvasDatabase instance for persistence.
-        _page: Current Page containing strokes.
-        _current_stroke: Stroke being drawn.
-        _start_point: Starting Point of current stroke.
-        _last_event_time: Time of last event to throttle publishing.
+    Service for recording, persisting, and rendering drawing strokes with fixed brush width and preview.
     """
 
     def __init__(self, bus: EventBus, tool_service: ToolService, database: CanvasDatabase) -> None:
         """
-        Initialize JournalService with persistent rendering.
-
-        Args:
-            bus: Event bus for publishing stroke events.
-            tool_service: ToolService providing current tool mode.
-            database: CanvasDatabase for persisting strokes.
-
-        Raises:
-            ValueError: If any dependency is None.
+        Initialize JournalService with fixed brush width handling.
         """
         if bus is None:
             raise ValueError('bus must not be None')
@@ -57,284 +43,259 @@ class JournalService:
         self._start_point = None
         self._last_point = None
         
+        # Shape preview system - more robust
+        self._preview_stroke = None
+        self._is_drawing_shape = False
+        self._preview_start_point = None
+        self._preview_end_point = None
+        
         # Performance optimizations
         self._last_event_time = 0
-        self._event_throttle_interval = 0.016  # ~60 FPS event throttling
-        self._point_cache = []
+        self._event_throttle_interval = 0.05  # 20 FPS for events
         
-        # Rendering optimization - but always render existing content
-        self._stroke_cache = []  # Cache converted strokes for performance
-        self._cache_valid = False
+        # Rendering optimization
+        self._stroke_cache = []
+        self._cache_valid = True
         
-        logger.info("JournalService initialized with persistent rendering")
+        # Dynamic brush width tracking - FIXED
+        self._current_brush_width = 5
+        bus.subscribe('brush_width_changed', self._on_brush_width_changed)
+        
+        logger.info("JournalService initialized with fixed brush width handling")
+
+    def _on_brush_width_changed(self, width: int) -> None:
+        """Handle brush width changes from hotbar."""
+        self._current_brush_width = width
+        logger.debug("Journal brush width updated to: %d", width)
 
     def reset(self) -> None:
         """Clear current page and reset state."""
         self._page = Page()
         self._current_stroke = None
+        self._preview_stroke = None
         self._start_point = None
         self._last_point = None
-        self._point_cache.clear()
+        self._is_drawing_shape = False
+        self._preview_start_point = None
+        self._preview_end_point = None
         self._stroke_cache.clear()
         self._cache_valid = False
         logger.info("Journal reset")
 
     def start_stroke(self, x: int, y: int, width: int, color: Tuple[int, int, int]) -> None:
         """
-        Begin a new stroke at the given coordinates.
-
-        Args:
-            x: X-coordinate of stroke start.
-            y: Y-coordinate of stroke start.
-            width: Stroke width.
-            color: RGB tuple for stroke.
+        Begin a new stroke with FIXED width handling.
         """
         mode = self._tool_service.current_tool_mode
         stroke_color = (0, 0, 0) if mode == 'eraser' else color
-
-        self._current_stroke = self._page.new_stroke(stroke_color)
-        self._start_point = Point(x, y, 0, width)  # z=0 for 2D drawing
-        self._last_point = self._start_point
-        self._point_cache.clear()
         
-        # Invalidate cache since we're adding new content
+        # Use current brush width from hotbar - CRITICAL FIX
+        actual_width = self._current_brush_width
+        logger.debug("Starting stroke with width: %d (mode: %s)", actual_width, mode)
+
+        # Create stroke with proper width
+        self._current_stroke = self._page.new_stroke(stroke_color, actual_width)
+        self._start_point = Point(x, y, 0, actual_width)
+        self._last_point = self._start_point
+        
+        # Shape preview system - FIXED
+        self._is_drawing_shape = mode in _SHAPED_MODES
+        if self._is_drawing_shape:
+            # Store preview points separately
+            self._preview_start_point = Point(x, y, 0, 1)  # Thin preview
+            self._preview_end_point = Point(x, y, 0, 1)
+            # Create preview stroke that won't interfere with main stroke
+            self._preview_stroke = Stroke(color=(128, 128, 128), width=1)  # Gray, thin
+            logger.debug("Started shape preview for mode: %s", mode)
+        
         self._cache_valid = False
 
         if mode in _TOOL_MODES_SIMPLE:
-            self._add_point(x, y, width)
-        
-        logger.debug("Started stroke at (%d, %d) with mode %s", x, y, mode)
+            # Add initial point for brush/eraser with correct width
+            self._current_stroke.add_point(self._start_point)
+            logger.debug("Added initial point with width: %d", actual_width)
 
     def add_point(self, x: int, y: int, width: int) -> None:
         """
-        Add a point to the current stroke with performance optimizations.
-
-        Args:
-            x: X-coordinate of the point.
-            y: Y-coordinate of the point.
-            width: Stroke width.
+        Add a point with FIXED width handling.
         """
         if not self._current_stroke:
-            logger.debug('add_point called without active stroke')
             return
 
+        # ALWAYS use current brush width - ignore parameter
+        actual_width = self._current_brush_width
         current_time = time.time()
         
-        # For shaped tools, just update the end point
-        if self._tool_service.current_tool_mode not in _TOOL_MODES_SIMPLE:
-            self._last_point = Point(x, y, 0, width)
+        # For shaped tools, update preview
+        if self._is_drawing_shape:
+            self._preview_end_point = Point(x, y, 0, 1)
+            self._update_shape_preview()
             return
 
-        # Add point to cache first for faster access
-        point = Point(x, y, 0, width)
-        self._point_cache.append(point)
-        
-        # Batch add points to stroke for better performance
-        if len(self._point_cache) >= 5 or current_time - self._last_event_time > 0.1:
-            for cached_point in self._point_cache:
-                self._current_stroke.add_point(cached_point)
-            self._point_cache.clear()
-            
-            # Invalidate cache when adding new points
-            self._cache_valid = False
-            
-            # Throttle event publishing for better performance
-            if current_time - self._last_event_time > self._event_throttle_interval:
-                self._bus.publish('stroke_added')
-                self._last_event_time = current_time
-        
+        # For brush/eraser: Add point with correct width
+        point = Point(x, y, 0, actual_width)
+        self._current_stroke.add_point(point)
         self._last_point = point
-        logger.debug("Added point (%d, %d) to stroke", x, y)
+        
+        # Throttle event publishing
+        if current_time - self._last_event_time > self._event_throttle_interval:
+            self._bus.publish('stroke_added')
+            self._last_event_time = current_time
 
     def end_stroke(self) -> None:
         """
-        Finalize and persist the current stroke based on tool mode.
+        Finalize stroke with FIXED preview handling.
         """
         if not self._current_stroke or not self._start_point:
-            logger.debug('end_stroke called without active stroke')
             return
-
-        # Flush any remaining cached points
-        if self._point_cache:
-            for cached_point in self._point_cache:
-                self._current_stroke.add_point(cached_point)
-            self._point_cache.clear()
 
         mode = self._tool_service.current_tool_mode
         try:
-            if mode in _SHAPED_MODES:
-                self._apply_shape(mode)
+            if mode in _SHAPED_MODES and self._preview_end_point:
+                # Apply final shape with proper width
+                self._apply_final_shape(mode)
                 
-            # Invalidate cache since stroke is complete
             self._cache_valid = False
-                
             self._bus.publish('stroke_added')
-            logger.info("Stroke completed with mode %s", mode)
+            logger.debug("Stroke completed with mode: %s", mode)
         except Exception as e:
-            logger.error('Failed to end stroke: %s', e, exc_info=True)
+            logger.error('Failed to end stroke: %s', e)
         finally:
+            # Clean up all state
             self._current_stroke = None
+            self._preview_stroke = None
             self._start_point = None
             self._last_point = None
+            self._is_drawing_shape = False
+            self._preview_start_point = None
+            self._preview_end_point = None
+
+    def _update_shape_preview(self) -> None:
+        """Update shape preview - ROBUST version."""
+        if not self._is_drawing_shape or not self._preview_start_point or not self._preview_end_point:
+            return
+            
+        mode = self._tool_service.current_tool_mode
+        
+        try:
+            # Calculate preview shape points
+            preview_points = self._calculate_shape(
+                mode, 
+                self._preview_start_point.x, self._preview_start_point.y,
+                self._preview_end_point.x, self._preview_end_point.y,
+                width=1  # Thin preview
+            )
+            
+            # Update preview stroke points
+            if self._preview_stroke:
+                self._preview_stroke.points = preview_points
+                
+        except Exception as e:
+            logger.error("Error updating shape preview: %s", e)
+
+    def _apply_final_shape(self, mode: str) -> None:
+        """Apply final shape with proper width."""
+        if not self._preview_end_point:
+            self._preview_end_point = self._start_point
+            
+        start = self._start_point
+        end = self._preview_end_point
+        
+        try:
+            # Calculate final shape with proper width
+            shape_points = self._calculate_shape(
+                mode, start.x, start.y, end.x, end.y, 
+                width=self._current_brush_width
+            )
+            self._current_stroke.points = shape_points
+            logger.debug("Applied final shape %s with width: %d", mode, self._current_brush_width)
+        except Exception as e:
+            logger.error("Error applying final shape %s: %s", mode, e)
+            # Fallback to simple line with correct width
+            self._current_stroke.points = [
+                Point(start.x, start.y, 0, self._current_brush_width),
+                Point(end.x, end.y, 0, self._current_brush_width)
+            ]
 
     def render(self, renderer: Any) -> None:
         """
-        Render all strokes on the current page - ALWAYS render existing content.
-        This ensures strokes remain visible between drawing operations.
-
-        Args:
-            renderer: Renderer with draw_stroke method.
+        Render all strokes with FIXED width handling.
         """
-        # Always render existing strokes - this is crucial for persistent visibility
-        if not self._page or not self._page.strokes:
+        if not self._page:
             return
             
-        # Use cached strokes if available and valid
-        if self._cache_valid and self._stroke_cache:
-            self._render_from_cache(renderer)
-        else:
-            self._render_and_cache(renderer)
-
-    def _render_from_cache(self, renderer: Any) -> None:
-        """Render strokes from cache for better performance."""
-        stroke_count = 0
+        # Render completed strokes
+        self._render_strokes(renderer)
         
-        for stroke_data in self._stroke_cache:
-            try:
-                points, color = stroke_data
-                if points and hasattr(renderer, 'draw_stroke'):
-                    renderer.draw_stroke(points, color, 3)
-                    stroke_count += 1
-            except Exception as e:
-                logger.error("Error rendering cached stroke: %s", e)
-                continue
-                
-        logger.debug("Rendered %d cached strokes", stroke_count)
+        # Render shape preview if active
+        if self._is_drawing_shape and self._preview_stroke and self._preview_stroke.points:
+            self._render_preview(renderer)
 
-    def _render_and_cache(self, renderer: Any) -> None:
-        """Render strokes and update cache."""
-        stroke_count = 0
-        new_cache = []
-        
+    def _render_strokes(self, renderer: Any) -> None:
+        """Render completed strokes with proper width."""
         for stroke in self._page.strokes:
             if not stroke.points:
                 continue
                 
             try:
-                # Convert stroke points
-                points = self._convert_stroke_points(stroke.points)
+                # Convert points
+                points = [(float(p.x), float(p.y)) for p in stroke.points 
+                         if hasattr(p, 'x') and hasattr(p, 'y')]
                 
                 if points and hasattr(renderer, 'draw_stroke'):
-                    # Ensure color is a valid tuple
+                    # Use stroke width (which is properly maintained)
                     color = stroke.color if isinstance(stroke.color, (tuple, list)) and len(stroke.color) == 3 else (255, 255, 255)
+                    width = stroke.width  # Use the stroke's width property
                     
-                    # Render the stroke
-                    renderer.draw_stroke(points, color, 3)
-                    stroke_count += 1
-                    
-                    # Cache the converted stroke for next frame
-                    new_cache.append((points, color))
+                    renderer.draw_stroke(points, color, width)
                     
             except Exception as e:
                 logger.error("Error rendering stroke: %s", e)
-                continue  # Skip this stroke but continue with others
-        
-        # Update cache
-        self._stroke_cache = new_cache
-        self._cache_valid = True
-                
-        logger.debug("Rendered and cached %d strokes", stroke_count)
-
-    def _convert_stroke_points(self, points: List[Point]) -> List[Tuple[float, float]]:
-        """
-        Convert Point objects to coordinate tuples efficiently.
-        
-        Args:
-            points: List of Point objects.
-            
-        Returns:
-            List of (x, y) coordinate tuples.
-        """
-        converted_points = []
-        
-        # Batch process points for better performance
-        for p in points:
-            try:
-                if hasattr(p, 'x') and hasattr(p, 'y'):
-                    converted_points.append((float(p.x), float(p.y)))
-                elif isinstance(p, (tuple, list)) and len(p) >= 2:
-                    converted_points.append((float(p[0]), float(p[1])))
-                else:
-                    logger.warning("Invalid point format in stroke: %r", p)
-                    continue
-            except (ValueError, TypeError) as e:
-                logger.warning("Error converting point %r: %s", p, e)
                 continue
-                
-        return converted_points
 
-    def _add_point(self, x: int, y: int, width: int) -> None:
-        """Internal helper to add a point to current stroke."""
-        self.add_point(x, y, width)
-
-    def _apply_shape(self, mode: str) -> None:
-        """
-        Compute and set points for shaped drawing tools.
-
-        Args:
-            mode: Tool mode indicating shape type.
-        """
-        if not self._last_point:
-            # If no end point, use start point
-            self._last_point = self._start_point
-            
-        start = self._start_point
-        end = self._last_point
-        
+    def _render_preview(self, renderer: Any) -> None:
+        """Render shape preview with thin gray line."""
         try:
-            shape_points = self._calculate_shape(mode, start.x, start.y, end.x, end.y)
-            self._current_stroke.points = shape_points
-            logger.debug("Applied shape %s with %d points", mode, len(shape_points))
+            points = [(float(p.x), float(p.y)) for p in self._preview_stroke.points 
+                     if hasattr(p, 'x') and hasattr(p, 'y')]
+            
+            if points and hasattr(renderer, 'draw_stroke'):
+                # Gray preview with thin line
+                renderer.draw_stroke(points, (128, 128, 128), 1)
+                
         except Exception as e:
-            logger.error("Error applying shape %s: %s", mode, e)
-            # Fallback to simple line
-            self._current_stroke.points = [start, end]
+            logger.error("Error rendering preview: %s", e)
 
     @staticmethod
-    def _calculate_shape(mode: str, x0: float, y0: float, x1: float, y1: float) -> List[Point]:
+    def _calculate_shape(mode: str, x0: float, y0: float, x1: float, y1: float, width: int = 1) -> List[Point]:
         """
-        Return points for shapes based on mode with optimized calculations.
-
-        Args:
-            mode: Shape mode (e.g., 'line', 'triangle', 'parabola').
-            x0: Start X.
-            y0: Start Y.
-            x1: End X.
-            y1: End Y.
-
-        Returns:
-            List[Point]: Points defining the shape.
+        Calculate shape points with specified width.
         """
         try:
             if mode == 'line':
-                # Generate line points using calculator
                 raw_points = get_line(int(x0), int(y0), int(x1), int(y1))
-                return [Point(x, y, 0, 1) for x, y in raw_points]
+                return [Point(x, y, 0, width) for x, y in raw_points]
+            elif mode == 'rect':
+                raw_points = get_rectangle(int(x0), int(y0), int(x1), int(y1))
+                return [Point(x, y, 0, width) for x, y in raw_points]
+            elif mode == 'circle':
+                center_x = (x0 + x1) / 2
+                center_y = (y0 + y1) / 2
+                radius = int(math.sqrt((x1 - x0)**2 + (y1 - y0)**2) / 2)
+                raw_points = get_circle(int(center_x), int(center_y), max(radius, 1))
+                return [Point(x, y, 0, width) for x, y in raw_points]
             elif mode == 'triangle':
-                # Generate triangle with third point offset
                 x2, y2 = x1, y0  # Right angle triangle
                 raw_points = get_triangle(int(x0), int(y0), int(x1), int(y1), int(x2), int(y2))
-                return [Point(x, y, 0, 1) for x, y in raw_points]
+                return [Point(x, y, 0, width) for x, y in raw_points]
             elif mode == 'parabola':
-                # Generate parabola points with limited complexity for performance
-                raw_points = get_parabola(1.0, 0.0, 0.0, float(min(x0, x1)), float(max(x0, x1)), 30)  # Reduced from 50 to 30
-                return [Point(x, y, 0, 1) for x, y in raw_points]
+                raw_points = get_parabola(1.0, 0.0, 0.0, float(min(x0, x1)), float(max(x0, x1)), 30)
+                return [Point(x, y, 0, width) for x, y in raw_points]
             else:
-                # Fallback to simple line
-                return [Point(x0, y0, 0, 1), Point(x1, y1, 0, 1)]
+                return [Point(x0, y0, 0, width), Point(x1, y1, 0, width)]
         except Exception as e:
             logger.error("Error calculating shape %s: %s", mode, e)
-            return [Point(x0, y0, 0, 1), Point(x1, y1, 0, 1)]
+            return [Point(x0, y0, 0, width), Point(x1, y1, 0, width)]
 
     def invalidate_cache(self) -> None:
         """Force cache invalidation for next render."""
