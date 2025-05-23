@@ -1,5 +1,7 @@
 """
-Hotbar Widget for visibility and rendering.
+Hotbar Widget with Universal Brush Width Support.
+
+CRITICAL FIX: Scroll wheel brush width adjustment now works for ALL tools.
 """
 
 import logging
@@ -35,10 +37,10 @@ class HotbarConfig:
 
 class HotbarWidget:
     """
-    Visual hotbar with CRITICAL FIXES for visibility.
+    Visual hotbar with UNIVERSAL BRUSH WIDTH CONTROL.
     """
     
-    # Mathematical symbols for tools
+    # Tool definitions with universal width support
     TOOL_DEFINITIONS = [
         ToolButton("brush", "Draw", "~", "Freehand drawing tool", "drawing"),
         ToolButton("eraser", "Erase", "X", "Eraser tool", "drawing"),
@@ -57,9 +59,9 @@ class HotbarWidget:
         config: Optional[HotbarConfig] = None
     ):
         """
-        Initialize the hotbar widget with CRITICAL FIXES.
+        Initialize the hotbar widget with universal brush control.
         """
-        logger.info("Initializing HotbarWidget...")
+        logger.info("Initializing HotbarWidget with universal brush control...")
         
         self.tool_service = tool_service
         self.renderer = renderer
@@ -70,6 +72,8 @@ class HotbarWidget:
         self.buttons: Dict[str, ToolButton] = {btn.key: btn for btn in self.TOOL_DEFINITIONS}
         self.button_rects: Dict[str, Tuple[int, int, int, int]] = {}
         self.hover_button: Optional[str] = None
+        
+        # UNIVERSAL BRUSH WIDTH - works for ALL tools
         self.brush_width = 5
         self.brush_width_min = 1
         self.brush_width_max = 50
@@ -85,13 +89,13 @@ class HotbarWidget:
         # Calculate button positions
         self._calculate_button_positions()
         
-        # Initialize brush width
+        # Initialize universal brush width
         try:
             self.bus.publish('brush_width_changed', self.brush_width)
         except Exception as e:
             logger.error("Failed to publish initial brush width: %s", e)
         
-        logger.info("HotbarWidget initialized successfully")
+        logger.info("HotbarWidget initialized with universal brush control")
     
     def _calculate_button_positions(self) -> None:
         """Calculate bounding rectangles for all buttons."""
@@ -143,22 +147,24 @@ class HotbarWidget:
             return False
     
     def handle_scroll_wheel(self, direction: int, pos: Tuple[int, int]) -> bool:
-        """Handle scroll wheel for brush width adjustment."""
+        """CRITICAL FIX: Universal scroll wheel for ALL tools."""
         try:
-            current_tool = self.tool_service.current_tool_mode
-            if current_tool in ['brush', 'eraser']:
-                old_width = self.brush_width
+            # UNIVERSAL BRUSH WIDTH CONTROL - works for ALL tools
+            old_width = self.brush_width
+            
+            if direction > 0:
+                self.brush_width = min(self.brush_width + 2, self.brush_width_max)
+            else:
+                self.brush_width = max(self.brush_width - 2, self.brush_width_min)
+            
+            if self.brush_width != old_width:
+                current_tool = self.tool_service.current_tool_mode
+                self.bus.publish('brush_width_changed', self.brush_width)
+                logger.info("Universal brush width changed via scroll to: %d (tool: %s)", 
+                           self.brush_width, current_tool)
                 
-                if direction > 0:
-                    self.brush_width = min(self.brush_width + 2, self.brush_width_max)
-                else:
-                    self.brush_width = max(self.brush_width - 2, self.brush_width_min)
-                
-                if self.brush_width != old_width:
-                    self.bus.publish('brush_width_changed', self.brush_width)
-                    logger.info("Brush width changed via scroll to: %d", self.brush_width)
-                return True
-            return False
+            return True  # Always consume scroll events for universal width control
+            
         except Exception as e:
             logger.error("Error handling scroll wheel: %s", e)
             return False
@@ -181,18 +187,18 @@ class HotbarWidget:
         return self._mouse_over_hotbar
     
     def render(self) -> None:
-        """CRITICAL FIX: Render the hotbar with forced visibility."""
+        """Render the hotbar with universal width indicator."""
         try:
             logger.debug("Rendering hotbar...")
             
-            # CRITICAL FIX: Always render background first
+            # Always render background first
             self._render_background()
             
-            # CRITICAL FIX: Always render buttons
+            # Always render buttons
             self._render_buttons()
             
-            # CRITICAL FIX: Always render brush width indicator
-            self._render_brush_width_indicator()
+            # UNIVERSAL width indicator for ALL tools
+            self._render_universal_width_indicator()
             
             logger.debug("Hotbar rendered successfully")
             
@@ -205,10 +211,10 @@ class HotbarWidget:
             total_width = (
                 len(self.buttons) * self.config.button_width + 
                 (len(self.buttons) - 1) * self.config.button_spacing +
-                140
+                160  # Extra space for universal width indicator
             )
             
-            # CRITICAL FIX: Draw thick background for visibility
+            # Draw thick background for visibility
             for i in range(self.config.button_height + 10):
                 try:
                     self._safe_draw_line(
@@ -243,7 +249,7 @@ class HotbarWidget:
                     else:
                         bg_color = (80, 80, 80)  # Darker gray for visibility
                     
-                    # CRITICAL FIX: Draw filled button background
+                    # Draw filled button background
                     for i in range(bh):
                         try:
                             self._safe_draw_line(
@@ -275,12 +281,10 @@ class HotbarWidget:
         except Exception as e:
             logger.error("Error rendering hotbar buttons: %s", e)
     
-    def _render_brush_width_indicator(self) -> None:
-        """Render brush width indicator for drawing tools."""
+    def _render_universal_width_indicator(self) -> None:
+        """CRITICAL FIX: Universal width indicator for ALL tools."""
         try:
             current_tool = getattr(self.tool_service, 'current_tool_mode', 'brush')
-            if current_tool not in ['brush', 'eraser']:
-                return
             
             indicator_x = (
                 self.config.x + 
@@ -289,22 +293,26 @@ class HotbarWidget:
             )
             indicator_y = self.config.y
             
-            # Draw width text
-            width_text = f"Size: {self.brush_width}"
+            # UNIVERSAL WIDTH DISPLAY - shows for ALL tools
+            width_text = f"Width: {self.brush_width}"
             self._safe_draw_text(width_text, (indicator_x, indicator_y + 5), 12, self.config.text_color)
             
-            # Draw visual width indicator (circle)
-            circle_x = indicator_x + 30
+            # Visual width indicator (circle) for ALL tools
+            circle_x = indicator_x + 40
             circle_y = indicator_y + 20
             circle_radius = min(max(self.brush_width // 2, 2), 15)
             
             self._safe_draw_circle((circle_x, circle_y), circle_radius, self.config.text_color)
             
-            # Draw scroll hint
-            self._safe_draw_text("Scroll", (indicator_x, indicator_y + 30), 8, (200, 200, 200))
+            # Universal scroll hint
+            self._safe_draw_text("Scroll (All Tools)", (indicator_x, indicator_y + 30), 8, (200, 200, 200))
+            
+            # Tool-specific indicator
+            tool_indicator = f"Tool: {current_tool.title()}"
+            self._safe_draw_text(tool_indicator, (indicator_x, indicator_y + 40), 9, (150, 255, 150))
             
         except Exception as e:
-            logger.error("Error rendering brush width indicator: %s", e)
+            logger.error("Error rendering universal width indicator: %s", e)
     
     def _draw_rect_outline(self, x: int, y: int, width: int, height: int, color: Tuple[int, int, int]) -> None:
         """Draw rectangle outline."""
@@ -350,5 +358,5 @@ class HotbarWidget:
             logger.debug("Error drawing circle: %s", e)
 
     def get_current_brush_width(self) -> int:
-        """Get the current brush width."""
+        """Get the current universal brush width."""
         return self.brush_width
