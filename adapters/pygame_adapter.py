@@ -10,6 +10,9 @@ interfaces defined in core.interfaces.
 
 import pygame
 import logging
+import threading
+import queue
+import math
 from typing import Any, Dict, List, Optional, Tuple
 from icecream import ic
 from core.interfaces import Engine, Clock, Event, InputAdapter
@@ -24,6 +27,11 @@ if logger.isEnabledFor(logging.DEBUG):
 DEFAULT_CLEAR_COLOR: Tuple[int, int, int] = (0, 0, 0)
 DEFAULT_DRAW_COLOR: Tuple[int, int, int] = (255, 255, 255)
 DEFAULT_FONT_NAME: Optional[str] = None  # System default
+
+# Performance constants
+MAX_STROKE_SEGMENTS = 1000  # Limit stroke complexity for performance
+STROKE_SMOOTHING_THRESHOLD = 3  # Minimum distance for point smoothing
+BATCH_RENDER_SIZE = 50  # Points to process in batch
 
 # Exceptions
 class AdapterError(Exception):
@@ -48,12 +56,41 @@ class FontManager:
             logger.debug("Font cached size=%d", size)
         return font
 
-class PointUnpacker:
-    """Converts points into (x, y, width) tuples."""
-
-    @staticmethod
-    def unpack(pt: Any, default_width: int) -> Tuple[int, int, int]:
-        """Unpack a point object into (x, y, width) tuple."""
+class PointCache:
+    """Optimized point conversion and caching."""
+    
+    def __init__(self, max_size: int = 1000):
+        self._cache = {}
+        self._max_size = max_size
+        
+    def convert_point(self, pt: Any, default_width: int) -> Tuple[int, int, int]:
+        """Convert and cache point conversions."""
+        # Create cache key
+        if hasattr(pt, "x") and hasattr(pt, "y"):
+            key = (pt.x, pt.y, getattr(pt, "width", default_width))
+        elif isinstance(pt, (tuple, list)) and len(pt) >= 2:
+            key = tuple(pt[:3]) if len(pt) >= 3 else (*pt[:2], default_width)
+        else:
+            # Don't cache invalid points
+            return self._convert_uncached(pt, default_width)
+            
+        if key in self._cache:
+            return self._cache[key]
+            
+        result = self._convert_uncached(pt, default_width)
+        
+        # Manage cache size
+        if len(self._cache) >= self._max_size:
+            # Remove oldest entries (simple FIFO)
+            old_keys = list(self._cache.keys())[:self._max_size // 2]
+            for old_key in old_keys:
+                del self._cache[old_key]
+                
+        self._cache[key] = result
+        return result
+    
+    def _convert_uncached(self, pt: Any, default_width: int) -> Tuple[int, int, int]:
+        """Convert point without caching."""
         try:
             if hasattr(pt, "x") and hasattr(pt, "y"):
                 width = getattr(pt, "width", default_width)
@@ -89,6 +126,30 @@ def validate_color(color: Tuple[int, int, int]) -> Tuple[int, int, int]:
     except (ValueError, TypeError) as e:
         logger.error("Error validating color %r: %s", color, e)
         return DEFAULT_DRAW_COLOR
+
+def interpolate_points(p1: Tuple[int, int], p2: Tuple[int, int]) -> List[Tuple[int, int]]:
+    """Generate interpolated points between two points for smooth lines."""
+    x1, y1 = p1
+    x2, y2 = p2
+    
+    points = []
+    dx = abs(x2 - x1)
+    dy = abs(y2 - y1)
+    
+    # Use Bresenham-like algorithm for smooth interpolation
+    steps = max(dx, dy)
+    if steps == 0:
+        return [p1]
+    
+    x_step = (x2 - x1) / steps
+    y_step = (y2 - y1) / steps
+    
+    for i in range(steps + 1):
+        x = int(x1 + i * x_step)
+        y = int(y1 + i * y_step)
+        points.append((x, y))
+    
+    return points
 
 # Mixins
 class WindowMixin:
@@ -233,67 +294,146 @@ class TextMixin:
             logger.error("Error drawing text '%s' at %s: %s", text, pos, e)
             raise AdapterError(f"Failed to draw text: {e}") from e
 
-class StrokeMixin:
-    """Provides stroke drawing method."""
+class OptimizedStrokeMixin:
+    """Provides optimized stroke drawing methods."""
+    
+    def __init__(self):
+        super().__init__()
+        self._point_cache = PointCache()
+        self._stroke_buffer = []
 
     def draw_stroke(
         self, points: List[Any], color: Optional[Tuple[int, int, int]] = None,
         default_width: int = 3
     ) -> None:
-        """Draw a stroke connecting multiple points."""
+        """Draw an optimized stroke connecting multiple points."""
         if not hasattr(self, 'screen') or self.screen is None:
             raise NotInitializedError("Screen not initialized")
         
+        if not points:
+            return
+            
         try:
             stroke_color = validate_color(color) if color is not None else DEFAULT_DRAW_COLOR
-            count = len(points)
+            point_count = len(points)
             
-            if count == 0:
-                return
-            
-            if count == 1:
+            if point_count == 1:
                 # Single point - draw as circle
-                if isinstance(points[0], (tuple, list)) and len(points[0]) >= 2:
-                    x, y = int(points[0][0]), int(points[0][1])
-                    self.draw_circle((x, y), default_width, stroke_color)
-                else:
-                    x, y, w = PointUnpacker.unpack(points[0], default_width)
-                    self.draw_circle((x, y), w, stroke_color)
+                self._draw_single_point(points[0], stroke_color, default_width)
                 return
             
-            # Multiple points - draw lines between them
-            for i in range(count - 1):
+            # Convert points efficiently
+            converted_points = self._convert_points_batch(points, default_width)
+            
+            if len(converted_points) < 2:
+                return
+                
+            # Draw optimized stroke using pygame.draw.lines for better performance
+            self._draw_optimized_stroke(converted_points, stroke_color, default_width)
+            
+            logger.debug("Optimized stroke drawn with %d points, color=%s", point_count, stroke_color)
+            
+        except Exception as e:
+            logger.error("Error drawing optimized stroke: %s", e)
+            # Fallback to simple drawing
+            self._draw_stroke_fallback(points, stroke_color, default_width)
+
+    def _draw_single_point(self, point: Any, color: Tuple[int, int, int], default_width: int) -> None:
+        """Draw a single point as a circle."""
+        try:
+            x, y, w = self._point_cache.convert_point(point, default_width)
+            self.draw_circle((x, y), max(1, w), color)
+        except Exception as e:
+            logger.error("Error drawing single point: %s", e)
+
+    def _convert_points_batch(self, points: List[Any], default_width: int) -> List[Tuple[int, int]]:
+        """Convert points in batches for better performance."""
+        converted = []
+        
+        for i in range(0, len(points), BATCH_RENDER_SIZE):
+            batch = points[i:i + BATCH_RENDER_SIZE]
+            for point in batch:
                 try:
-                    # Handle both tuple and Point object formats
-                    if isinstance(points[i], (tuple, list)) and len(points[i]) >= 2:
-                        x0, y0 = int(points[i][0]), int(points[i][1])
-                        w0 = default_width
-                    else:
-                        x0, y0, w0 = PointUnpacker.unpack(points[i], default_width)
+                    x, y, _ = self._point_cache.convert_point(point, default_width)
+                    converted.append((x, y))
+                except Exception as e:
+                    logger.warning("Skipping invalid point in batch: %s", e)
+                    continue
                     
-                    if isinstance(points[i + 1], (tuple, list)) and len(points[i + 1]) >= 2:
-                        x1, y1 = int(points[i + 1][0]), int(points[i + 1][1])
-                        w1 = default_width
-                    else:
-                        x1, y1, w1 = PointUnpacker.unpack(points[i + 1], default_width)
+        return converted
+
+    def _draw_optimized_stroke(self, points: List[Tuple[int, int]], color: Tuple[int, int, int], width: int) -> None:
+        """Draw stroke using optimized pygame methods."""
+        if len(points) < 2:
+            return
+            
+        try:
+            # Smooth the stroke by interpolating between distant points
+            smoothed_points = self._smooth_stroke_points(points)
+            
+            # Use pygame.draw.lines for efficient rendering
+            if len(smoothed_points) >= 2:
+                # Clamp width for performance
+                line_width = max(1, min(width, 10))
+                
+                # Draw main stroke line
+                pygame.draw.lines(self.screen, color, False, smoothed_points, line_width)
+                
+                # Add end caps for better appearance
+                if line_width > 1:
+                    start_point = smoothed_points[0]
+                    end_point = smoothed_points[-1]
+                    cap_radius = line_width // 2
                     
-                    # Draw line and circles at endpoints
-                    line_width = max(1, min(w0, w1, 10))  # Limit line width
-                    self.draw_line((x0, y0), (x1, y1), line_width, stroke_color)
-                    self.draw_circle((x0, y0), max(1, w0), stroke_color)
+                    pygame.draw.circle(self.screen, color, start_point, cap_radius)
+                    pygame.draw.circle(self.screen, color, end_point, cap_radius)
                     
-                    # Draw circle at final point
-                    if i == count - 2:
-                        self.draw_circle((x1, y1), max(1, w1), stroke_color)
-                        
+        except Exception as e:
+            logger.error("Error in optimized stroke drawing: %s", e)
+            self._draw_stroke_fallback(points, color, width)
+
+    def _smooth_stroke_points(self, points: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+        """Smooth stroke points to eliminate gaps."""
+        if len(points) < 2:
+            return points
+            
+        smoothed = [points[0]]
+        
+        for i in range(1, len(points)):
+            prev_point = smoothed[-1]
+            curr_point = points[i]
+            
+            # Calculate distance between points
+            dx = curr_point[0] - prev_point[0]
+            dy = curr_point[1] - prev_point[1]
+            distance = math.sqrt(dx * dx + dy * dy)
+            
+            # If points are far apart, interpolate
+            if distance > STROKE_SMOOTHING_THRESHOLD:
+                interpolated = interpolate_points(prev_point, curr_point)
+                smoothed.extend(interpolated[1:])  # Skip first point to avoid duplicate
+            else:
+                smoothed.append(curr_point)
+                
+        return smoothed
+
+    def _draw_stroke_fallback(self, points: List[Any], color: Tuple[int, int, int], default_width: int) -> None:
+        """Fallback stroke drawing method."""
+        try:
+            for i in range(len(points) - 1):
+                try:
+                    x0, y0, w0 = self._point_cache.convert_point(points[i], default_width)
+                    x1, y1, w1 = self._point_cache.convert_point(points[i + 1], default_width)
+                    
+                    line_width = max(1, min(w0, w1, 10))
+                    self.draw_line((x0, y0), (x1, y1), line_width, color)
+                    
                 except Exception as e:
                     logger.error("Error drawing stroke segment %d: %s", i, e)
-                    continue  # Skip this segment but continue with the rest
-            
-            logger.debug("Stroke drawn with %d segments, color=%s", count-1, stroke_color)
+                    continue
+                    
         except Exception as e:
-            logger.error("Error drawing stroke: %s", e)
-            # Don't re-raise here to avoid breaking the render loop
+            logger.error("Error in fallback stroke drawing: %s", e)
 
 class CursorMixin:
     """Provides cursor drawing method."""
@@ -333,7 +473,7 @@ class UIMixin:
 
 class PygameEngineAdapter(
     WindowMixin, DisplayMixin, PollMixin,
-    GraphicsMixin, TextMixin, StrokeMixin,
+    GraphicsMixin, TextMixin, OptimizedStrokeMixin,
     CursorMixin, UIMixin, Engine
 ):
     """Composite adapter implementing Engine via mixins."""
@@ -341,6 +481,7 @@ class PygameEngineAdapter(
 
     def __init__(self) -> None:
         """Initialize the pygame engine adapter."""
+        super().__init__()
         self.screen = None
         logger.info("PygameEngineAdapter initialized")
 

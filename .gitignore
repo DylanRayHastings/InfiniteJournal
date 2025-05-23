@@ -17,6 +17,7 @@ __pycache__/
 venv/
 env/
 ENV/
+.env
 
 # Ignore system files
 .DS_Store
