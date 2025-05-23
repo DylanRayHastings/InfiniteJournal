@@ -13,7 +13,7 @@ from config import Settings, ConfigurationError
 from bootstrap.cli import parse_args
 from bootstrap.logging_setup import setup_logging
 from bootstrap.errors import make_exception_hook, StartupError
-from bootstrap.factory import compose_app  # Use existing function
+from bootstrap.legacy_factory import compose_app  # Use existing function
 
 logger = logging.getLogger(__name__)
 

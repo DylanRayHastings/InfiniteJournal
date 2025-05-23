@@ -1,38 +1,67 @@
-# adapters/pygame_adapter.py (CRITICAL FIXES - Drawing phasing and distortions)
+# adapters/pygame_adapter.py (UPDATED - Integrated with layered rendering and coordinate systems)
 """
-PyGame Adapter with CRITICAL FIXES for drawing phasing, distortions, and brush rendering.
+PyGame Adapter with CRITICAL ARCHITECTURAL FIXES
+
+Integrates:
+- Layered rendering system (background, drawing, UI layers)
+- Hierarchical coordinate system for infinite canvas
+- Non-destructive shape preview system
+- Mathematical curve generation framework
+- Pan functionality with right-click drag
+
+CRITICAL FIXES:
+1. Eraser only affects drawing layer, not background grid
+2. Coordinate system handles large scales without overflow
+3. Shape preview without gray line artifacts
+4. Accurate parabola generation with proper mathematics
+5. Right-click pan functionality for viewport movement
 """
 
 import pygame
 import logging
 import math
-from typing import Any, Dict, List, Optional, Tuple
+import time
+from typing import Any, Dict, List, Optional, Tuple, Union
 from icecream import ic
+
+# Import new architectural components
+from core.rendering.layered_system import LayeredRenderingSystem, LayeredPygameAdapter
+from core.coordinates.infinite_system import CoordinateManager, WorldCoordinate
+from core.preview.shape_preview import ShapePreviewSystem, PreviewIntegrationHelper, PreviewStyle
+from core.math.curve_generation import CurveGenerationFramework, CurveType, CurveParameters
+
 from core.interfaces import Engine, Clock, Event, InputAdapter
 from core.event_bus import EventBus
+from core.error_boundary import rendering_boundary, ErrorContext, get_global_error_boundary
+from core.performance import profile_operation, get_global_adaptive_quality
 
 logger = logging.getLogger(__name__)
 
-# Constants
+# Constants for enhanced rendering
 DEFAULT_CLEAR_COLOR: Tuple[int, int, int] = (0, 0, 0)
 DEFAULT_DRAW_COLOR: Tuple[int, int, int] = (255, 255, 255)
 DEFAULT_FONT_NAME: Optional[str] = None
 
-# CRITICAL FIX: Optimized constants for smooth rendering
-MAX_STROKE_SEGMENTS = 500  # Reduced for performance
-STROKE_SMOOTHING_THRESHOLD = 3  # Reduced for smoother lines
-BATCH_RENDER_SIZE = 25  # Smaller batches for stability
+# Performance constants
+MAX_STROKE_SEGMENTS = 500
+STROKE_SMOOTHING_THRESHOLD = 3
+BATCH_RENDER_SIZE = 25
 
-# Exceptions
+# Pan constants
+PAN_SENSITIVITY = 1.0
+MIN_PAN_DISTANCE = 2
+
+
 class AdapterError(Exception):
     """Base exception for adapter failures."""
     pass
+
 
 class NotInitializedError(AdapterError):
     """Raised when operations are attempted before initialization."""
     pass
 
-# Utilities
+
 class FontManager:
     """Caches and provides Pygame fonts by size."""
     _cache: Dict[int, pygame.font.Font] = {}
@@ -49,36 +78,41 @@ class FontManager:
                 font = pygame.font.Font(None, 12)
         return font
 
-class OptimizedPointCache:
-    """CRITICAL FIX: Optimized point conversion for smooth rendering."""
+
+class EnhancedPointCache:
+    """Enhanced point conversion with coordinate system integration."""
     
-    def __init__(self, max_size: int = 500):  # Smaller cache for performance
+    def __init__(self, coordinate_manager: CoordinateManager, max_size: int = 500):
         self._cache = {}
         self._max_size = max_size
+        self.coordinate_manager = coordinate_manager
         
-    def convert_point(self, pt: Any, default_width: int) -> Tuple[int, int, int]:
-        """Convert point with CRITICAL optimizations."""
+    def convert_point_to_screen(self, pt: Any, default_width: int) -> Tuple[int, int, int]:
+        """Convert point to screen coordinates with width."""
         try:
             if hasattr(pt, "x") and hasattr(pt, "y"):
-                x = int(pt.x)
-                y = int(pt.y)
+                # Convert world coordinates to screen coordinates
+                world_coord = WorldCoordinate.from_world(float(pt.x), float(pt.y))
+                screen_pos = self.coordinate_manager.world_coord_to_screen(world_coord)
                 width = getattr(pt, "width", default_width)
             elif isinstance(pt, (tuple, list)) and len(pt) >= 2:
-                x = int(pt[0])
-                y = int(pt[1])
+                # Convert tuple coordinates
+                screen_pos = self.coordinate_manager.world_float_to_screen(float(pt[0]), float(pt[1]))
                 width = pt[2] if len(pt) >= 3 else default_width
             else:
                 return 100, 100, max(1, default_width)
             
-            # CRITICAL FIX: Clamp values to prevent distortions
-            x = max(0, min(9999, x))
-            y = max(0, min(9999, y))
-            width = max(1, min(100, int(width)))  # Limit max width to prevent distortions
+            # Clamp values to prevent distortions
+            x = max(-1000, min(10000, screen_pos[0]))
+            y = max(-1000, min(10000, screen_pos[1]))
+            width = max(1, min(100, int(width)))
             
             return x, y, width
             
-        except (ValueError, TypeError, OverflowError):
+        except (ValueError, TypeError, OverflowError) as e:
+            logger.debug("Error converting point: %s", e)
             return 100, 100, max(1, default_width)
+
 
 def validate_color(color: Tuple[int, int, int]) -> Tuple[int, int, int]:
     """Validate and ensure color is a proper RGB tuple."""
@@ -94,31 +128,7 @@ def validate_color(color: Tuple[int, int, int]) -> Tuple[int, int, int]:
     except (ValueError, TypeError):
         return DEFAULT_DRAW_COLOR
 
-def interpolate_points_smooth(p1: Tuple[int, int], p2: Tuple[int, int]) -> List[Tuple[int, int]]:
-    """CRITICAL FIX: Generate smooth interpolated points without distortions."""
-    x1, y1 = p1
-    x2, y2 = p2
-    
-    dx = x2 - x1
-    dy = y2 - y1
-    distance = math.sqrt(dx * dx + dy * dy)
-    
-    if distance < 1:
-        return [p1]
-    
-    # CRITICAL FIX: Limit steps to prevent rendering distortions
-    steps = max(2, min(int(distance / 2), 15))  # Limited steps for performance
-    
-    points = []
-    for i in range(steps + 1):
-        t = i / steps
-        x = int(x1 + dx * t)
-        y = int(y1 + dy * t)
-        points.append((x, y))
-    
-    return points
 
-# Mixins
 class WindowMixin:
     """Provides window initialization methods."""
 
@@ -127,7 +137,7 @@ class WindowMixin:
         self.init_window(width, height, title)
 
     def init_window(self, width: int, height: int, title: str) -> None:
-        """Initialize pygame window with stable settings."""
+        """Initialize pygame window with layered rendering system."""
         if width <= 0 or height <= 0:
             raise AdapterError("Window dimensions must be positive")
             
@@ -135,7 +145,7 @@ class WindowMixin:
             pygame.init()
             pygame.font.init()
             
-            # CRITICAL FIX: Stable display flags to prevent phasing
+            # Initialize display
             flags = pygame.DOUBLEBUF | pygame.HWSURFACE
             
             try:
@@ -144,13 +154,48 @@ class WindowMixin:
                 self.screen = pygame.display.set_mode((width, height), flags)
                     
             pygame.display.set_caption(title)
-            pygame.display.flip()  # Initial flip
             
-            logger.info("Window initialized: %dx%d '%s'", width, height, title)
+            # CRITICAL: Initialize architectural systems
+            self._initialize_architectural_systems(width, height)
+            
+            pygame.display.flip()
+            
+            logger.info("Enhanced window initialized: %dx%d '%s'", width, height, title)
             
         except Exception as e:
-            logger.error("Failed to initialize window: %s", e)
+            logger.error("Failed to initialize enhanced window: %s", e)
             raise AdapterError(f"Window initialization failed: {e}") from e
+            
+    def _initialize_architectural_systems(self, width: int, height: int) -> None:
+        """Initialize the new architectural systems."""
+        try:
+            # Initialize coordinate system
+            self.coordinate_manager = CoordinateManager(width, height)
+            
+            # Initialize layered rendering
+            self.layered_adapter = LayeredPygameAdapter(self)
+            self.layered_adapter.initialize(width, height)
+            
+            # Initialize shape preview system
+            self.preview_system = ShapePreviewSystem(width, height)
+            self.preview_helper = PreviewIntegrationHelper(self.preview_system)
+            
+            # Initialize curve generation framework
+            self.curve_framework = CurveGenerationFramework()
+            
+            # Initialize point cache with coordinate manager
+            self._point_cache = EnhancedPointCache(self.coordinate_manager)
+            
+            # Pan state
+            self._is_panning = False
+            self._pan_start_pos = None
+            self._last_pan_pos = None
+            
+            logger.info("Architectural systems initialized successfully")
+            
+        except Exception as e:
+            logger.error("Failed to initialize architectural systems: %s", e)
+            raise
 
     def get_size(self) -> Tuple[int, int]:
         """Get the current window/screen size."""
@@ -158,30 +203,47 @@ class WindowMixin:
             raise NotInitializedError("Screen not initialized")
         return self.screen.get_size()
 
+
 class DisplayMixin:
-    """Provides screen clear and present methods."""
+    """Provides screen clear and present methods with layered rendering."""
 
     def clear(self, color: Optional[Tuple[int, int, int]] = None) -> None:
-        """Clear the screen with the specified color."""
+        """Clear the screen - now handled by layered rendering."""
         if not hasattr(self, 'screen') or self.screen is None:
             raise NotInitializedError("Screen not initialized")
         
+        # Clear is now handled by the layered rendering system
         clear_color = validate_color(color) if color is not None else DEFAULT_CLEAR_COLOR
         self.screen.fill(clear_color)
 
     def present(self) -> None:
-        """Present the rendered frame to the display."""
+        """Present the rendered frame using layered rendering."""
         if not hasattr(self, 'screen') or self.screen is None:
             raise NotInitializedError("Screen not initialized")
         
-        # CRITICAL FIX: Single flip for stable rendering
-        pygame.display.flip()
+        try:
+            # Render all layers
+            if hasattr(self, 'layered_adapter') and self.layered_adapter.rendering_system:
+                self.layered_adapter.render_layered()
+            
+            # Render shape preview on top
+            if hasattr(self, 'preview_system'):
+                self.preview_system.render_to_screen(self.screen)
+            
+            # Present to display
+            pygame.display.flip()
+            
+        except Exception as e:
+            logger.error("Error in enhanced present: %s", e)
+            # Fallback to simple present
+            pygame.display.flip()
+
 
 class PollMixin:
-    """Handles polling Pygame events."""
+    """Handles polling Pygame events with pan support."""
 
     def poll_events(self) -> List[Event]:
-        """Poll pygame events and convert to core Events."""
+        """Poll pygame events with enhanced pan support."""
         if not hasattr(self, 'screen') or self.screen is None:
             raise NotInitializedError("Screen not initialized")
         
@@ -192,69 +254,266 @@ class PollMixin:
                 if e.type == pygame.QUIT:
                     events.append(Event('QUIT', {}))
                 elif e.type == pygame.MOUSEMOTION:
+                    # Handle pan during mouse motion
+                    self._handle_pan_motion(e)
                     events.append(Event('MOUSE_MOVE', {'pos': e.pos, 'rel': e.rel}))
                 elif e.type == pygame.MOUSEBUTTONDOWN:
-                    if e.button in (4, 5):
+                    if e.button == 3:  # Right click
+                        self._start_pan(e.pos)
+                    elif e.button in (4, 5):  # Scroll wheel
                         direction = 1 if e.button == 4 else -1
                         events.append(Event('SCROLL_WHEEL', {'direction': direction, 'pos': e.pos}))
                     else:
                         events.append(Event('MOUSE_DOWN', {'pos': e.pos, 'button': e.button}))
                         events.append(Event('MOUSE_CLICK', {'pos': e.pos, 'button': e.button}))
                 elif e.type == pygame.MOUSEBUTTONUP:
+                    if e.button == 3:  # Right click
+                        self._end_pan()
                     events.append(Event('MOUSE_UP', {'pos': e.pos, 'button': e.button}))
                 elif e.type == pygame.KEYDOWN:
                     events.append(Event('KEY_PRESS', pygame.key.name(e.key)))
         except Exception as e:
-            logger.error("Error polling events: %s", e)
+            logger.error("Error polling enhanced events: %s", e)
             
         return events
+        
+    def _start_pan(self, pos: Tuple[int, int]) -> None:
+        """Start panning operation."""
+        try:
+            self._is_panning = True
+            self._pan_start_pos = pos
+            self._last_pan_pos = pos
+            
+            # Set cursor to indicate panning
+            pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_SIZEALL)
+            
+            logger.debug("Pan started at %s", pos)
+            
+        except Exception as e:
+            logger.error("Error starting pan: %s", e)
+            
+    def _handle_pan_motion(self, event) -> None:
+        """Handle mouse motion during panning."""
+        try:
+            if not self._is_panning or not self._last_pan_pos:
+                return
+                
+            current_pos = event.pos
+            
+            # Calculate pan delta
+            dx = (current_pos[0] - self._last_pan_pos[0]) * PAN_SENSITIVITY
+            dy = (current_pos[1] - self._last_pan_pos[1]) * PAN_SENSITIVITY
+            
+            # Only pan if movement is significant
+            if abs(dx) >= MIN_PAN_DISTANCE or abs(dy) >= MIN_PAN_DISTANCE:
+                # Pan the coordinate system
+                if hasattr(self, 'coordinate_manager'):
+                    self.coordinate_manager.pan_viewport(int(dx), int(dy))
+                
+                # Pan the layered rendering system
+                if hasattr(self, 'layered_adapter'):
+                    self.layered_adapter.pan_layered(int(dx), int(dy))
+                
+                self._last_pan_pos = current_pos
+                
+                logger.debug("Panned by (%d, %d)", dx, dy)
+                
+        except Exception as e:
+            logger.error("Error handling pan motion: %s", e)
+            
+    def _end_pan(self) -> None:
+        """End panning operation."""
+        try:
+            self._is_panning = False
+            self._pan_start_pos = None
+            self._last_pan_pos = None
+            
+            # Reset cursor
+            pygame.mouse.set_cursor(pygame.SYSTEM_CURSOR_ARROW)
+            
+            logger.debug("Pan ended")
+            
+        except Exception as e:
+            logger.error("Error ending pan: %s", e)
 
-class GraphicsMixin:
-    """Provides basic shape drawing methods."""
 
-    def draw_line(
-        self, start: Tuple[int, int], end: Tuple[int, int], width: int,
-        color: Optional[Tuple[int, int, int]] = None
-    ) -> None:
-        """Draw a line between two points."""
+class EnhancedGraphicsMixin:
+    """Enhanced graphics with layered rendering and coordinate support."""
+
+    def draw_line(self, start: Tuple[int, int], end: Tuple[int, int], width: int,
+                  color: Optional[Tuple[int, int, int]] = None) -> None:
+        """Draw line using layered rendering system."""
         if not hasattr(self, 'screen') or self.screen is None:
             raise NotInitializedError("Screen not initialized")
         
         try:
             line_color = validate_color(color) if color is not None else DEFAULT_DRAW_COLOR
-            start_pos = (max(0, min(9999, int(start[0]))), max(0, min(9999, int(start[1]))))
-            end_pos = (max(0, min(9999, int(end[0]))), max(0, min(9999, int(end[1]))))
-            line_width = max(1, min(100, int(width)))  # CRITICAL: Limit width
             
-            pygame.draw.line(self.screen, line_color, start_pos, end_pos, line_width)
+            # Convert to world coordinates and back to screen for consistency
+            start_world = self.coordinate_manager.screen_to_world_coord(start[0], start[1])
+            end_world = self.coordinate_manager.screen_to_world_coord(end[0], end[1])
+            
+            start_screen = self.coordinate_manager.world_coord_to_screen(start_world)
+            end_screen = self.coordinate_manager.world_coord_to_screen(end_world)
+            
+            # Use layered rendering
+            if hasattr(self, 'layered_adapter') and self.layered_adapter.rendering_system:
+                points = [start_screen, end_screen]
+                self.layered_adapter.draw_stroke_layered(points, line_color, max(1, width))
+            else:
+                # Fallback to direct drawing
+                pygame.draw.line(self.screen, line_color, start_screen, end_screen, max(1, width))
+                
         except Exception as e:
-            logger.debug("Error drawing line: %s", e)
+            logger.debug("Error drawing enhanced line: %s", e)
 
-    def draw_circle(
-        self, center: Tuple[int, int], radius: int,
-        color: Optional[Tuple[int, int, int]] = None, width: int = 0
-    ) -> None:
-        """Draw a circle at the specified center with given radius."""
+    def draw_circle(self, center: Tuple[int, int], radius: int,
+                   color: Optional[Tuple[int, int, int]] = None, width: int = 0) -> None:
+        """Draw circle using coordinate system."""
         if not hasattr(self, 'screen') or self.screen is None:
             raise NotInitializedError("Screen not initialized")
         
         try:
             circle_color = validate_color(color) if color is not None else DEFAULT_DRAW_COLOR
-            center_pos = (max(0, min(9999, int(center[0]))), max(0, min(9999, int(center[1]))))
-            circle_radius = max(1, min(200, int(radius)))  # CRITICAL: Limit radius
-            circle_width = max(0, min(50, int(width)))
             
-            pygame.draw.circle(self.screen, circle_color, center_pos, circle_radius, circle_width)
+            # Convert center to world coordinates and back
+            center_world = self.coordinate_manager.screen_to_world_coord(center[0], center[1])
+            center_screen = self.coordinate_manager.world_coord_to_screen(center_world)
+            
+            safe_radius = max(1, min(200, int(radius)))
+            safe_width = max(0, min(50, int(width)))
+            
+            pygame.draw.circle(self.screen, circle_color, center_screen, safe_radius, safe_width)
+            
         except Exception as e:
-            logger.debug("Error drawing circle: %s", e)
+            logger.debug("Error drawing enhanced circle: %s", e)
+
+    def draw_stroke_enhanced(self, points: List[Any], color: Optional[Tuple[int, int, int]] = None,
+                           default_width: int = 3) -> None:
+        """Enhanced stroke drawing with layered rendering and coordinate system."""
+        if not hasattr(self, 'screen') or self.screen is None:
+            raise NotInitializedError("Screen not initialized")
+        
+        if not points:
+            return
+            
+        try:
+            stroke_color = validate_color(color) if color is not None else DEFAULT_DRAW_COLOR
+            
+            # Skip gray preview lines to prevent artifacts
+            if stroke_color == (128, 128, 128):
+                return
+            
+            # Convert points using enhanced cache
+            converted_points = []
+            for point in points:
+                try:
+                    x, y, w = self._point_cache.convert_point_to_screen(point, default_width)
+                    converted_points.append((x, y))
+                except Exception:
+                    continue
+            
+            if len(converted_points) < 2:
+                return
+            
+            # Use layered rendering system
+            if hasattr(self, 'layered_adapter') and self.layered_adapter.rendering_system:
+                self.layered_adapter.draw_stroke_layered(converted_points, stroke_color, default_width)
+            else:
+                # Fallback rendering
+                self._draw_stroke_fallback(converted_points, stroke_color, default_width)
+                
+        except Exception as e:
+            logger.error("Error drawing enhanced stroke: %s", e)
+            
+    def _draw_stroke_fallback(self, points: List[Tuple[int, int]], color: Tuple[int, int, int], width: int) -> None:
+        """Fallback stroke rendering."""
+        try:
+            if len(points) == 1:
+                # Single point
+                radius = max(1, width // 2)
+                pygame.draw.circle(self.screen, color, points[0], radius)
+            else:
+                # Multi-point stroke
+                for i in range(len(points) - 1):
+                    pygame.draw.line(self.screen, color, points[i], points[i + 1], max(1, width))
+                    
+                # Add end caps
+                if width > 2:
+                    cap_radius = max(1, width // 2)
+                    pygame.draw.circle(self.screen, color, points[0], cap_radius)
+                    pygame.draw.circle(self.screen, color, points[-1], cap_radius)
+                    
+        except Exception as e:
+            logger.error("Error in fallback stroke rendering: %s", e)
+
+    def draw_shape_preview(self, tool_name: str, start: Tuple[int, int], end: Tuple[int, int],
+                          color: Optional[Tuple[int, int, int]] = None, width: int = 2) -> None:
+        """Draw shape preview using non-destructive preview system."""
+        try:
+            if not hasattr(self, 'preview_helper'):
+                return
+                
+            preview_color = validate_color(color) if color is not None else (128, 128, 255)
+            
+            # Update preview
+            if self.preview_helper.should_show_preview(tool_name):
+                if not self.preview_system.is_preview_active():
+                    self.preview_helper.start_tool_preview(tool_name, start[0], start[1], width, preview_color)
+                else:
+                    self.preview_helper.update_tool_preview(end[0], end[1])
+                    
+        except Exception as e:
+            logger.error("Error drawing shape preview: %s", e)
+
+    def end_shape_preview(self) -> None:
+        """End shape preview."""
+        try:
+            if hasattr(self, 'preview_helper'):
+                self.preview_helper.end_tool_preview()
+        except Exception as e:
+            logger.error("Error ending shape preview: %s", e)
+
+    def generate_parabola_points(self, start: Tuple[float, float], end: Tuple[float, float],
+                               curvature: float = 1.0, resolution: int = 50) -> List[Tuple[float, float]]:
+        """Generate mathematically accurate parabola points."""
+        try:
+            if hasattr(self, 'curve_framework'):
+                return self.curve_framework.fit_parabola_to_points(start, end, curvature, resolution)
+            else:
+                # Fallback to basic generation
+                logger.warning("Curve framework not available, using basic parabola")
+                return [start, end]
+        except Exception as e:
+            logger.error("Error generating parabola points: %s", e)
+            return [start, end]
+
+    def erase_at_position_layered(self, x: int, y: int, radius: int) -> None:
+        """Erase using layered system (only affects drawing layer)."""
+        try:
+            if hasattr(self, 'layered_adapter'):
+                self.layered_adapter.erase_layered(x, y, radius)
+            else:
+                logger.warning("Layered adapter not available for erasing")
+        except Exception as e:
+            logger.error("Error in layered erase: %s", e)
+
+    def clear_canvas_layered(self) -> None:
+        """Clear only drawing layer, preserve grid."""
+        try:
+            if hasattr(self, 'layered_adapter'):
+                self.layered_adapter.clear_canvas_layered()
+            else:
+                logger.warning("Layered adapter not available for clearing")
+        except Exception as e:
+            logger.error("Error in layered clear: %s", e)
+
 
 class TextMixin:
     """Provides text rendering method."""
 
-    def draw_text(
-        self, text: str, pos: Tuple[int, int], size: int,
-        color: Optional[Tuple[int, int, int]] = None
-    ) -> None:
+    def draw_text(self, text: str, pos: Tuple[int, int], size: int,
+                  color: Optional[Tuple[int, int, int]] = None) -> None:
         """Render text at the specified position."""
         if not hasattr(self, 'screen') or self.screen is None:
             raise NotInitializedError("Screen not initialized")
@@ -271,122 +530,12 @@ class TextMixin:
         except Exception as e:
             logger.debug("Error drawing text: %s", e)
 
-class OptimizedStrokeMixin:
-    """CRITICAL FIX: Optimized stroke drawing to prevent phasing and distortions."""
-    
-    def __init__(self):
-        super().__init__()
-        self._point_cache = OptimizedPointCache()
-
-    def draw_stroke(
-        self, points: List[Any], color: Optional[Tuple[int, int, int]] = None,
-        default_width: int = 3
-    ) -> None:
-        """CRITICAL FIX: Draw stroke without phasing or distortions."""
-        if not hasattr(self, 'screen') or self.screen is None:
-            raise NotInitializedError("Screen not initialized")
-        
-        if not points:
-            return
-            
-        try:
-            stroke_color = validate_color(color) if color is not None else DEFAULT_DRAW_COLOR
-            
-            # Skip gray preview lines
-            if stroke_color == (128, 128, 128):
-                return
-            
-            point_count = len(points)
-            
-            if point_count == 1:
-                # CRITICAL FIX: Single point rendering
-                self._draw_single_point_optimized(points[0], stroke_color, default_width)
-                return
-            
-            # CRITICAL FIX: Optimized multi-point rendering
-            self._draw_multi_point_optimized(points, stroke_color, default_width)
-            
-        except Exception as e:
-            logger.error("Error drawing stroke: %s", e)
-
-    def _draw_single_point_optimized(self, point: Any, color: Tuple[int, int, int], default_width: int) -> None:
-        """CRITICAL FIX: Optimized single point rendering."""
-        try:
-            x, y, w = self._point_cache.convert_point(point, default_width)
-            
-            # CRITICAL FIX: Proper radius calculation to prevent distortions
-            radius = max(1, min(50, w // 2))  # Limit radius to prevent distortions
-            
-            # Draw filled circle
-            pygame.draw.circle(self.screen, color, (x, y), radius)
-            
-        except Exception as e:
-            logger.error("Error drawing single point: %s", e)
-
-    def _draw_multi_point_optimized(self, points: List[Any], color: Tuple[int, int, int], default_width: int) -> None:
-        """CRITICAL FIX: Optimized multi-point rendering to prevent phasing."""
-        try:
-            # Convert points efficiently
-            converted_points = []
-            for point in points:
-                try:
-                    x, y, _ = self._point_cache.convert_point(point, default_width)
-                    converted_points.append((x, y))
-                except Exception:
-                    continue
-            
-            if len(converted_points) < 2:
-                return
-            
-            # CRITICAL FIX: Limit width to prevent distortions
-            line_width = max(1, min(50, default_width))
-            
-            # CRITICAL FIX: Use optimized line drawing
-            try:
-                # Draw connected lines for smooth stroke
-                for i in range(len(converted_points) - 1):
-                    start_point = converted_points[i]
-                    end_point = converted_points[i + 1]
-                    
-                    # CRITICAL FIX: Interpolate only if points are far apart
-                    dx = end_point[0] - start_point[0]
-                    dy = end_point[1] - start_point[1]
-                    distance = math.sqrt(dx * dx + dy * dy)
-                    
-                    if distance > STROKE_SMOOTHING_THRESHOLD:
-                        # Interpolate for smooth line
-                        interpolated = interpolate_points_smooth(start_point, end_point)
-                        for j in range(len(interpolated) - 1):
-                            pygame.draw.line(self.screen, color, interpolated[j], interpolated[j + 1], line_width)
-                    else:
-                        # Direct line for close points
-                        pygame.draw.line(self.screen, color, start_point, end_point, line_width)
-                
-                # CRITICAL FIX: Add end caps for smooth appearance
-                if line_width > 2:
-                    cap_radius = max(1, line_width // 2)
-                    pygame.draw.circle(self.screen, color, converted_points[0], cap_radius)
-                    pygame.draw.circle(self.screen, color, converted_points[-1], cap_radius)
-                    
-            except Exception as draw_error:
-                logger.error("Error in optimized line drawing: %s", draw_error)
-                # Fallback to simple lines
-                for i in range(len(converted_points) - 1):
-                    try:
-                        pygame.draw.line(self.screen, color, converted_points[i], converted_points[i + 1], line_width)
-                    except Exception:
-                        continue
-                    
-        except Exception as e:
-            logger.error("Error in multi-point rendering: %s", e)
 
 class CursorMixin:
     """Provides cursor drawing method."""
 
-    def draw_cursor(
-        self, pos: Tuple[int, int], radius: int,
-        color: Optional[Tuple[int, int, int]] = None
-    ) -> None:
+    def draw_cursor(self, pos: Tuple[int, int], radius: int,
+                   color: Optional[Tuple[int, int, int]] = None) -> None:
         """Draw a cursor at the specified position."""
         cursor_color = validate_color(color) if color is not None else DEFAULT_DRAW_COLOR
         try:
@@ -396,13 +545,12 @@ class CursorMixin:
         except Exception as e:
             logger.error("Error drawing cursor: %s", e)
 
+
 class UIMixin:
     """Provides UI overlay drawing method."""
 
-    def draw_ui(
-        self, mode: str, timestamp: str,
-        color: Optional[Tuple[int, int, int]] = None
-    ) -> None:
+    def draw_ui(self, mode: str, timestamp: str,
+               color: Optional[Tuple[int, int, int]] = None) -> None:
         """Draw UI overlay with mode and timestamp information."""
         if not hasattr(self, 'screen') or self.screen is None:
             raise NotInitializedError("Screen not initialized")
@@ -421,39 +569,110 @@ class UIMixin:
 
 class PygameEngineAdapter(
     WindowMixin, DisplayMixin, PollMixin,
-    GraphicsMixin, TextMixin, OptimizedStrokeMixin,
-    CursorMixin, UIMixin, Engine
+    EnhancedGraphicsMixin, TextMixin, CursorMixin, UIMixin, Engine
 ):
-    """Composite adapter with CRITICAL FIXES for smooth rendering."""
+    """Enhanced PyGame engine adapter with architectural improvements."""
     screen: Optional[pygame.Surface] = None
 
     def __init__(self) -> None:
-        """Initialize the pygame engine adapter."""
+        """Initialize the enhanced pygame engine adapter."""
         super().__init__()
         self.screen = None
-        logger.info("PygameEngineAdapter initialized with CRITICAL drawing fixes")
+        
+        # Initialize architectural components (will be set in init_window)
+        self.coordinate_manager = None
+        self.layered_adapter = None
+        self.preview_system = None
+        self.preview_helper = None
+        self.curve_framework = None
+        self._point_cache = None
+        
+        # Pan state
+        self._is_panning = False
+        self._pan_start_pos = None
+        self._last_pan_pos = None
+        
+        logger.info("Enhanced PygameEngineAdapter initialized")
+
+    @rendering_boundary("pygame_render", "pygame_adapter")
+    def render_all_layers(self) -> None:
+        """Render all architectural layers."""
+        try:
+            if self.layered_adapter and self.layered_adapter.rendering_system:
+                self.layered_adapter.render_layered()
+        except Exception as e:
+            logger.error("Error rendering all layers: %s", e)
+
+    def get_coordinate_info(self) -> Dict[str, Any]:
+        """Get coordinate system information."""
+        try:
+            if self.coordinate_manager:
+                return self.coordinate_manager.get_system_info()
+            return {}
+        except Exception as e:
+            logger.error("Error getting coordinate info: %s", e)
+            return {}
+
+    def get_layer_stats(self) -> Dict[str, Any]:
+        """Get layered rendering statistics."""
+        try:
+            if self.layered_adapter and self.layered_adapter.rendering_system:
+                return self.layered_adapter.rendering_system.get_layer_stats()
+            return {}
+        except Exception as e:
+            logger.error("Error getting layer stats: %s", e)
+            return {}
+
+    def is_panning(self) -> bool:
+        """Check if currently panning."""
+        return self._is_panning
+
+    def resize_systems(self, new_width: int, new_height: int) -> None:
+        """Resize all architectural systems."""
+        try:
+            if self.coordinate_manager:
+                self.coordinate_manager.resize(new_width, new_height)
+                
+            if self.layered_adapter and self.layered_adapter.rendering_system:
+                self.layered_adapter.rendering_system.resize(new_width, new_height)
+                
+            if self.preview_system:
+                self.preview_system.resize(new_width, new_height)
+                
+            logger.info("Architectural systems resized to %dx%d", new_width, new_height)
+            
+        except Exception as e:
+            logger.error("Error resizing systems: %s", e)
 
 
 class PygameClockAdapter(Clock):
-    """Clock implementation using Pygame."""
+    """Clock implementation using Pygame with performance monitoring."""
 
     def __init__(self) -> None:
         try:
             self._clock = pygame.time.Clock()
             self._last_tick_time = 0.0
-            logger.info("PygameClockAdapter initialized")
+            self._adaptive_quality = get_global_adaptive_quality()
+            logger.info("Enhanced PygameClockAdapter initialized")
         except Exception as e:
-            logger.error("Failed to initialize clock: %s", e)
+            logger.error("Failed to initialize enhanced clock: %s", e)
             raise
 
     def tick(self, target_fps: int) -> float:
-        """Enforce target FPS and return actual frame time in seconds."""
+        """Enforce target FPS with adaptive quality tracking."""
         try:
-            safe_fps = max(30, min(120, int(target_fps)))  # CRITICAL: Limit FPS range
-            self._last_tick_time = self._clock.tick(safe_fps) / 1000.0
-            return self._last_tick_time
+            safe_fps = max(30, min(120, int(target_fps)))
+            frame_time_ms = self._clock.tick(safe_fps)
+            frame_time_s = frame_time_ms / 1000.0
+            
+            # Record frame time for adaptive quality
+            if self._adaptive_quality:
+                self._adaptive_quality.record_frame_time(frame_time_s)
+            
+            self._last_tick_time = frame_time_s
+            return frame_time_s
         except Exception as e:
-            logger.error("Error in clock tick: %s", e)
+            logger.error("Error in enhanced clock tick: %s", e)
             return 0.016  # ~60 FPS fallback
 
     def get_time(self) -> float:
@@ -475,12 +694,14 @@ class PygameClockAdapter(Clock):
 
 
 class PygameInputAdapter(InputAdapter):
-    """Pass-through input adapter for pygame events."""
+    """Enhanced input adapter with pan gesture support."""
 
     def __init__(self) -> None:
-        """Initialize the input adapter."""
-        logger.info("PygameInputAdapter initialized")
+        """Initialize the enhanced input adapter."""
+        logger.info("Enhanced PygameInputAdapter initialized")
 
     def translate(self, events: List[Event]) -> List[Event]:
-        """Translate events."""
+        """Translate events with enhanced pan support."""
+        # Pass through events as-is for now
+        # Pan handling is done in the PollMixin
         return events
