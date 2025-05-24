@@ -1,0 +1,42 @@
+pygame>=2.5.0
+PyOpenGL>=3.1.6
+PyOpenGL-accelerate>=3.1.6
+numpy>=1.24.0
+
+# ===================================
+
+# Setup Instructions
+
+## Installation
+
+1. Create a virtual environment:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+2. Install dependencies:
+   ```bash
+   pip install -r requirements/base.txt
+   ```
+
+3. Run the application:
+   ```bash
+   cd src
+   python -m infinitejournal.main
+   ```
+
+## Controls
+
+- ESC: Exit application
+- F11: Toggle fullscreen
+
+## Troubleshooting
+
+If you encounter OpenGL errors:
+- Make sure your graphics drivers are up to date
+- Try changing the OpenGL version in config.py to (3, 0) or (2, 1)
+- On some systems, you may need to install additional OpenGL libraries:
+  - Ubuntu/Debian: `sudo apt-get install libgl1-mesa-dev`
+  - macOS: OpenGL should be available by default
+  - Windows: Update your graphics drivers

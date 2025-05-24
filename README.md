@@ -1,45 +1,96 @@
-# InfiniteJournal
+Infinite Journal
+A 3D infinite journal application for creative drawing and note-taking in an unlimited 3D space.
+Features
 
-An infinite digital journal with drawing capabilities and optimized performance.
+Infinite 3D drawing space
+OpenGL-based rendering
+Cross-platform support (Windows, macOS, Linux)
 
-## Features
+Quick Start
+Prerequisites
 
-- **Persistent Drawing**: All strokes remain visible until explicitly cleared
-- **Smooth Brush Strokes**: Optimized rendering eliminates gaps and lag
-- **Multiple Tools**: Brush, eraser, line, triangle, parabola, and more
-- **Performance Optimized**: Async persistence and optimized rendering
-- **Configurable**: Environment variable configuration for all settings
+Python 3.8 or higher
+OpenGL-compatible graphics card
 
-## Controls
+Installation
 
-- **Mouse**: Left click and drag to draw
-- **Number Keys (1-5)**: Change brush color to neon colors
-- **+/-**: Increase/decrease brush size
-- **Space**: Cycle through tools
-- **C**: Clear canvas
-- **Tool Keys**: Press tool name to switch (brush, eraser, line, etc.)
+Clone the repository:
 
-## Configuration
+bashgit clone https://github.com/DylanRayHastings/infinitejournal.git
+cd infinitejournal
 
-Set these environment variables to customize behavior:
+Create a virtual environment:
 
-### Performance Settings
-- `IJ_FPS=60`: Target frame rate
-- `IJ_MAX_FPS=120`: Maximum frame rate
-- `IJ_STROKE_SMOOTHING=true`: Enable stroke smoothing
-- `IJ_ASYNC_SAVE=true`: Enable asynchronous saving
+bashpython -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-### Drawing Settings
-- `IJ_BRUSH_MIN=1`: Minimum brush size
-- `IJ_BRUSH_MAX=100`: Maximum brush size
-- `IJ_POINT_THRESHOLD=2`: Point distance threshold for smoothing
+Install dependencies:
 
-### Window Settings
-- `IJ_WIDTH=1280`: Window width
-- `IJ_HEIGHT=720`: Window height
-- `IJ_TITLE="InfiniteJournal"`: Window title
+bashpip install -r requirements/base.txt
+Running the Application
+Option 1: Using the run script
+bashpython run.py
+Option 2: Using the batch/shell scripts
 
-## Running
+Windows: Double-click run.bat
+Unix/macOS: Run ./run.sh (make sure it's executable: chmod +x run.sh)
 
-```bash
-python main.py
+Option 3: Direct module execution
+bashcd src
+python -m infinitejournal.main
+Option 4: Install and run
+bashpip install -e .
+infinitejournal
+Controls
+
+ESC: Exit application
+F11: Toggle fullscreen
+
+Project Structure
+infinitejournal/
+├── src/
+│   └── infinitejournal/
+│       ├── backends/      # Rendering backends
+│       ├── drawing/       # Drawing tools and models
+│       ├── interface/     # UI components
+│       ├── storage/       # File storage and formats
+│       ├── tools/         # Drawing tools
+│       ├── utilities/     # Utility functions
+│       ├── world/         # 3D world management
+│       ├── config.py      # Configuration
+│       └── main.py        # Entry point
+├── requirements/          # Dependencies
+├── tests/                 # Unit tests
+├── docs/                  # Documentation
+└── run.py                # Quick start script
+Troubleshooting
+OpenGL Errors
+If you encounter OpenGL-related errors:
+
+Update graphics drivers: Make sure you have the latest graphics drivers installed
+Check OpenGL version: The application requires OpenGL 3.3 by default. You can change this in config.py
+Install system dependencies:
+
+Ubuntu/Debian: sudo apt-get install libgl1-mesa-dev
+Fedora: sudo dnf install mesa-libGL-devel
+macOS: OpenGL should be available by default
+
+
+
+Black Screen Issues
+If you see a black screen but no errors:
+
+This is normal! The application starts with a black screen
+Press ESC to exit
+Check the logs in the logs/ directory for any issues
+
+Development
+Running Tests
+bashpytest tests/
+Code Style
+bashflake8 src/
+black src/
+License
+MIT License - see LICENSE file for details
+Contributing
+See CONTRIBUTING.md for contribution guidelines.
