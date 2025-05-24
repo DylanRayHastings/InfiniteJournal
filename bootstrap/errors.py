@@ -89,7 +89,7 @@ def make_exception_hook(settings=None) -> Callable:
         
         # Additional context if settings available
         if settings:
-            debug_mode = getattr(settings, 'DEBUG', False)
+            debug_mode = getattr(settings, 'DEBUG', True)
             data_path = getattr(settings, 'DATA_PATH', None)
             
             logger.error(f"Debug Mode: {debug_mode}")

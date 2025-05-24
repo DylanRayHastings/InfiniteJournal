@@ -137,10 +137,10 @@ class ColorMath:
 
 class ColorWheelRenderer:
     """
-    Renders color wheel with 12 discrete color segments.
+    Renders color wheel with 6 primary color segments.
     
-    Provides efficient rendering of a 12-color wheel with brightness
-    and saturation controls for each color.
+    Provides efficient rendering of a 6-color wheel displaying Red, Green, Blue, 
+    Cyan, Violet, and Yellow with brightness and saturation controls for each color.
     """
     
     def __init__(self, center_x: int, center_y: int, radius: int):
@@ -153,49 +153,29 @@ class ColorWheelRenderer:
         self.hue_ring_width = radius * 0.25
         self.render_quality = 2  # Render scale for smoothness
         
-        # Define exactly 12 colors for the wheel
-        self.color_count = 12
-        self.predefined_colors = self._build_12_color_palette()
+        # Define exactly 6 primary colors for the wheel
+        self.color_count = 6
+        self.predefined_colors = self._build_primary_color_palette()
         
         # Cache for rendered segments
         self._segment_cache: Dict[int, Tuple[int, int, int]] = {}
         self._cache_valid = False
         
-        logger.debug(f"ColorWheelRenderer initialized: center=({center_x}, {center_y}), radius={radius}, colors={self.color_count}")
+        logger.debug(f"ColorWheelRenderer initialized: center=({center_x}, {center_y}), radius={radius}, colors={self.color_count} primary colors")
     
-    def _build_12_color_palette(self) -> List[Tuple[int, int, int]]:
-        """Build the standard 12-color palette matching the original implementation."""
-        # This matches the mathematical color generation from the original ColorWheel class
-        colors = []
-        teta = 360 / self.color_count
-        alpha = int(120 / teta)
-        beta = int(60 / teta)
+    def _build_primary_color_palette(self) -> List[Tuple[int, int, int]]:
+        """Build the standard 6 primary color palette: Red, Green, Blue, Cyan, Violet, Yellow."""
+        # Define the 6 primary colors with their exact RGB values
+        primary_colors = [
+            (255, 0, 0),    # Red (0°)
+            (255, 255, 0),  # Yellow (60°) 
+            (0, 255, 0),    # Green (120°)
+            (0, 255, 255),  # Cyan (180°)
+            (0, 0, 255),    # Blue (240°)
+            (255, 0, 255),  # Violet/Magenta (300°)
+        ]
         
-        # Build red channel values
-        red = []
-        for i in range(alpha + 1):
-            red.append(0)
-        for i in range(beta - 1):
-            red.append((i + 1) * (255 / beta))
-        for i in range(alpha + 1):
-            red.append(255)
-        for i in range(beta - 1, 0, -1):
-            red.append(i * (255 / beta))
-        
-        # Generate green and blue by shifting red values
-        import numpy as np
-        red_array = np.array(red)
-        green_array = np.roll(red_array, alpha)
-        blue_array = np.roll(green_array, alpha)
-        
-        # Convert to RGB tuples
-        for i in range(self.color_count):
-            r = int(round(red_array[i])) if i < len(red_array) else 255
-            g = int(round(green_array[i])) if i < len(green_array) else 0
-            b = int(round(blue_array[i])) if i < len(blue_array) else 0
-            colors.append((r, g, b))
-        
-        return colors
+        return primary_colors
     
     def render_color_wheel(self, backend: Any, current_color: Optional[ColorInfo] = None) -> None:
         """Render the complete color wheel interface."""
@@ -220,12 +200,12 @@ class ColorWheelRenderer:
             logger.error(f"Color wheel rendering failed: {error}")
     
     def _render_hue_ring(self, backend: Any) -> None:
-        """Render the outer ring with 12 discrete color segments."""
+        """Render the outer ring with 6 primary color segments."""
         if not hasattr(backend, 'draw_circle'):
             logger.warning("Backend does not support circle drawing")
             return
         
-        # Calculate angle for each of the 12 color segments
+        # Calculate angle for each of the 6 color segments
         angle_step = 360.0 / self.color_count
         
         for i in range(self.color_count):
@@ -236,11 +216,11 @@ class ColorWheelRenderer:
             center_angle = i * angle_step
             
             # Draw multiple points to fill the segment arc
-            points_per_segment = max(5, int(angle_step / 2))  # Ensure good coverage
+            points_per_segment = max(8, int(angle_step / 3))  # More points per segment for better coverage
             
             for point in range(points_per_segment):
                 # Calculate angle for this point within the segment
-                angle_offset = (point / points_per_segment - 0.5) * angle_step * 0.8  # 80% coverage
+                angle_offset = (point / points_per_segment - 0.5) * angle_step * 0.9  # 90% coverage
                 angle = center_angle + angle_offset
                 angle_rad = math.radians(angle)
                 
@@ -252,7 +232,7 @@ class ColorWheelRenderer:
                 try:
                     backend.draw_circle(
                         (int(segment_x), int(segment_y)),
-                        max(2, int(self.hue_ring_width / 6)),
+                        max(3, int(self.hue_ring_width / 5)),
                         color_rgb
                     )
                 except Exception as draw_error:

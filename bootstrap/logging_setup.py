@@ -52,7 +52,7 @@ def setup_logging(settings, console_log_level: str = 'INFO') -> None:
     root_logger.addHandler(console_handler)
     
     # File handlers
-    debug_mode = getattr(settings, 'DEBUG', False)
+    debug_mode = getattr(settings, 'DEBUG', True)
     
     # Main log file (rotating)
     main_log_file = log_dir / 'infinitejournal.log'

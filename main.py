@@ -1,264 +1,286 @@
 """
-Fixed main.py for Universal Services Framework Migration
-======================================================
+InfiniteJournal Application Entry Point
 
-This replaces your existing main.py to work with the Universal Services Framework.
-Eliminates service initialization errors and provides working drawing functionality.
+Clean, modular main.py with Universal Services Framework support.
+Eliminates duplication and provides clear, readable application startup.
 """
 
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
-
+from typing import Any, List, Optional, Protocol, Tuple
+from dataclasses import dataclass
 from dotenv import load_dotenv
-
-# Import from new Universal Services Framework
-try:
-    from services import (
-        create_working_application,  # Use working version instead
-        ApplicationSettings,
-        create_memory_storage,
-        ValidationService
-    )
-    UNIVERSAL_SERVICES_AVAILABLE = True
-except ImportError:
-    # Fallback for gradual migration
-    UNIVERSAL_SERVICES_AVAILABLE = False
-
-# Keep existing imports for compatibility
-from bootstrap.cli import parse_args
-from bootstrap.errors import StartupError, make_exception_hook
-from bootstrap.logging_setup import setup_logging
-
-# Handle the deprecated Settings.load()
-try:
-    from config import load_application_configuration, Settings
-    USE_NEW_CONFIG = True
-except ImportError:
-    from config import Settings
-    USE_NEW_CONFIG = False
-
-MIN_PYTHON_VERSION: Tuple[int, int] = (3, 9)
-SUCCESS_EXIT_CODE: int = 0
-APPLICATION_ERROR_EXIT_CODE: int = 1
-STARTUP_ERROR_EXIT_CODE: int = 2
 
 logger = logging.getLogger(__name__)
 
+MIN_PYTHON_VERSION: Tuple[int, int] = (3, 9)
+SUCCESS_EXIT_CODE: int = 0
+ERROR_EXIT_CODE: int = 1
+
 
 class ApplicationError(Exception):
-    """Base exception for application-level errors."""
+    """Base exception for application errors."""
     pass
 
 
-class ApplicationStartupError(ApplicationError):
-    """Raised when application fails to start properly."""
+class EnvironmentError(ApplicationError):
+    """Environment validation failed."""
     pass
 
 
-def validate_environment() -> None:
-    """Validate basic environment requirements."""
-    # Check Python version
-    current_version = sys.version_info[:2]
-    if current_version < MIN_PYTHON_VERSION:
-        raise ApplicationStartupError(
-            f"Python {MIN_PYTHON_VERSION[0]}.{MIN_PYTHON_VERSION[1]}+ required, "
-            f"found {current_version[0]}.{current_version[1]}"
-        )
+class ConfigurationError(ApplicationError):
+    """Configuration loading failed."""
+    pass
+
+
+class ApplicationInterface(Protocol):
+    """Interface for application instances."""
     
-    # Check required packages
-    try:
-        import pygame
-        logger.debug(f"Pygame version: {pygame.version.ver}")
-    except ImportError:
-        raise ApplicationStartupError("Pygame not installed. Run: pip install pygame")
+    def run(self) -> None:
+        """Run the application."""
+        pass
+    
+    def initialize(self) -> None:
+        """Initialize the application if needed."""
+        pass
 
 
-def load_environment_variables() -> None:
-    """Load environment variables from .env file if present."""
-    env_file = Path('.env')
-    if env_file.exists():
-        load_dotenv(env_file)
-        logger.debug(f"Loaded environment from {env_file}")
+@dataclass
+class ApplicationConfig:
+    """Application configuration container."""
+    width: int = 1280
+    height: int = 720
+    title: str = 'InfiniteJournal'
+    fps: int = 60
+    debug: bool = True
+    log_level: str = 'INFO'
 
 
-def create_application_with_working_services(settings) -> Any:
-    """Create application using Working Services Framework."""
-    try:
-        # Import pygame adapter
+class EnvironmentValidator:
+    """Validates runtime environment requirements."""
+    
+    @staticmethod
+    def validate_python_version() -> None:
+        """Ensure Python version meets requirements."""
+        current_version = sys.version_info[:2]
+        if current_version < MIN_PYTHON_VERSION:
+            required = f"{MIN_PYTHON_VERSION[0]}.{MIN_PYTHON_VERSION[1]}"
+            current = f"{current_version[0]}.{current_version[1]}"
+            raise EnvironmentError(f"Python {required}+ required, found {current}")
+    
+    @staticmethod
+    def validate_pygame_available() -> None:
+        """Ensure pygame is installed."""
+        try:
+            import pygame
+            logger.debug(f"Pygame version: {pygame.version.ver}")
+        except ImportError:
+            raise EnvironmentError("Pygame not installed. Run: pip install pygame")
+    
+    @staticmethod
+    def validate_environment() -> None:
+        """Validate complete environment."""
+        EnvironmentValidator.validate_python_version()
+        EnvironmentValidator.validate_pygame_available()
+
+
+class ConfigurationLoader:
+    """Loads and manages application configuration."""
+    
+    @staticmethod
+    def load_environment_variables() -> None:
+        """Load environment variables from .env file."""
+        env_file = Path('.env')
+        if env_file.exists():
+            load_dotenv(env_file)
+            logger.debug(f"Loaded environment from {env_file}")
+    
+    @staticmethod
+    def load_settings(log_level: str) -> Any:
+        """Load application settings with fallback support."""
+        try:
+            return ConfigurationLoader._load_new_config()
+        except ImportError:
+            return ConfigurationLoader._load_legacy_config()
+    
+    @staticmethod
+    def _load_new_config() -> Any:
+        """Load using new configuration system."""
+        from config import load_application_configuration, Settings
+        logger.debug("Using new configuration system")
+        config = load_application_configuration()
+        return Settings(config)
+    
+    @staticmethod
+    def _load_legacy_config() -> Any:
+        """Load using legacy configuration system."""
+        from config import Settings
+        logger.debug("Using legacy configuration system")
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            return Settings.load()
+
+
+class ApplicationFactory:
+    """Creates application instances with appropriate framework."""
+    
+    @staticmethod
+    def create_application(settings: Any) -> ApplicationInterface:
+        """Create application using best available framework."""
+        if ApplicationFactory._universal_services_available():
+            return ApplicationFactory._create_modern_application(settings)
+        return ApplicationFactory._create_legacy_application(settings)
+    
+    @staticmethod
+    def _universal_services_available() -> bool:
+        """Check if Universal Services Framework is available."""
+        try:
+            from services import create_working_application
+            return True
+        except ImportError:
+            return False
+    
+    @staticmethod
+    def _create_modern_application(settings: Any) -> ApplicationInterface:
+        """Create application using Universal Services Framework."""
+        from services import create_working_application
         from adapters.pygame_adapter import PygameEngineAdapter
         
-        # Create backend
         backend = PygameEngineAdapter()
-        
-        # Create working application (bypasses service initialization issues)
         app = create_working_application(
             backend=backend,
             window_width=getattr(settings, 'WIDTH', 1280),
             window_height=getattr(settings, 'HEIGHT', 720),
             window_title=getattr(settings, 'TITLE', 'InfiniteJournal'),
             target_fps=getattr(settings, 'FPS', 60),
-            debug_mode=getattr(settings, 'DEBUG', False)
+            debug_mode=getattr(settings, 'DEBUG', True)
         )
         
-        logger.info("Created application with Working Services Framework")
+        logger.info("Created application with Universal Services Framework")
         return app
-        
-    except Exception as error:
-        logger.error(f"Failed to create Working Services application: {error}")
-        raise ApplicationStartupError(f"Working Services creation failed: {error}") from error
-
-
-def create_application_with_legacy_compatibility(settings) -> Any:
-    """Create application with legacy compatibility layer."""
-    try:
-        # Create a compatibility bridge for the old services.app
+    
+    @staticmethod
+    def _create_legacy_application(settings: Any) -> ApplicationInterface:
+        """Create application using legacy compatibility layer."""
         from bootstrap.factory import create_simple_app
         
-        # This will work with your existing bootstrap system
         app = create_simple_app(settings)
-        
         logger.info("Created application with legacy compatibility")
         return app
-        
-    except Exception as error:
-        logger.error(f"Failed to create legacy compatible application: {error}")
-        raise ApplicationStartupError(f"Legacy app creation failed: {error}") from error
 
 
-def create_application_based_on_availability(settings) -> Any:
-    """Create application based on what's available."""
-    if UNIVERSAL_SERVICES_AVAILABLE:
-        logger.info("Using Working Services Framework")
-        return create_application_with_working_services(settings)
-    else:
-        logger.info("Using legacy compatibility mode")
-        return create_application_with_legacy_compatibility(settings)
-
-
-def load_application_settings(console_log_level: str):
-    """Load application settings with proper handling."""
-    try:
-        if USE_NEW_CONFIG:
-            # Use new configuration system
-            logger.debug("Using new configuration system")
-            config = load_application_configuration()
-            settings = Settings(config)  # Convert to legacy Settings for compatibility
-        else:
-            # Use legacy Settings.load() but handle deprecation
-            logger.debug("Using legacy configuration system")
-            import warnings
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", DeprecationWarning)
-                settings = Settings.load()
+class ApplicationRunner:
+    """Orchestrates application startup and execution."""
+    
+    def __init__(self):
+        self.settings: Optional[Any] = None
+        self.app: Optional[ApplicationInterface] = None
+    
+    def initialize_environment(self, log_level: str) -> None:
+        """Initialize complete application environment."""
+        EnvironmentValidator.validate_environment()
+        ConfigurationLoader.load_environment_variables()
+        self.settings = ConfigurationLoader.load_settings(log_level)
+        self._setup_logging_and_errors()
+    
+    def _setup_logging_and_errors(self) -> None:
+        """Configure logging and error handling."""
+        from bootstrap.logging_setup import setup_logging
+        from bootstrap.errors import make_exception_hook
         
-        return settings
+        setup_logging(self.settings, getattr(self.settings, 'LOG_LEVEL', 'INFO'))
+        sys.excepthook = make_exception_hook(self.settings)
+        logger.info("Application environment initialized")
+    
+    def create_application(self) -> None:
+        """Create application instance."""
+        if not self.settings:
+            raise ConfigurationError("Settings not loaded")
         
-    except Exception as error:
-        logger.error(f"Failed to load settings: {error}")
-        raise ApplicationStartupError(f"Settings loading failed: {error}") from error
-
-
-def initialize_application_environment(console_log_level: str):
-    """Initialize complete application environment."""
-    try:
-        # Validate environment
-        validate_environment()
-        
-        # Load environment variables
-        load_environment_variables()
-        
-        # Load settings
-        settings = load_application_settings(console_log_level)
-        
-        # Setup logging
-        setup_logging(settings, console_log_level)
-        
-        # Install global error handler
-        sys.excepthook = make_exception_hook(settings)
-        
-        logger.info("Application environment initialized successfully")
-        return settings
-        
-    except Exception as error:
-        logger.error(f"Environment initialization failed: {error}")
-        raise ApplicationStartupError(f"Environment initialization failed: {error}") from error
-
-
-def run_application(settings) -> None:
-    """Create and run the application."""
-    try:
-        # Create application
-        app = create_application_based_on_availability(settings)
-        
-        # Log startup information
+        self.app = ApplicationFactory.create_application(self.settings)
+        self._log_startup_info()
+    
+    def _log_startup_info(self) -> None:
+        """Log application startup information."""
         logger.info("Starting InfiniteJournal")
         logger.info(
             "Configuration: SIZE=%dx%d, FPS=%d, DEBUG=%s",
-            getattr(settings, 'WIDTH', 1280),
-            getattr(settings, 'HEIGHT', 720),
-            getattr(settings, 'FPS', 60),
-            getattr(settings, 'DEBUG', False)
+            getattr(self.settings, 'WIDTH', 1280),
+            getattr(self.settings, 'HEIGHT', 720),
+            getattr(self.settings, 'FPS', 60),
+            getattr(self.settings, 'DEBUG', True)
         )
+    
+    def run_application(self) -> None:
+        """Execute the application."""
+        if not self.app:
+            raise ApplicationError("Application not created")
         
-        # Run application
-        if hasattr(app, 'initialize'):
-            # Working Services Framework app
-            app.initialize()
-            app.run()
-        else:
-            # Legacy app
-            app.run()
+        if hasattr(self.app, 'initialize'):
+            self.app.initialize()
         
+        self.app.run()
         logger.info("Application completed successfully")
-        
-    except KeyboardInterrupt:
-        logger.info("Application interrupted by user")
-    except Exception as error:
-        logger.error(f"Application runtime error: {error}")
-        raise ApplicationStartupError(f"Application execution failed: {error}") from error
+
+
+def parse_command_line_arguments(argv: Optional[List[str]] = None) -> Any:
+    """Parse command line arguments."""
+    from bootstrap.cli import parse_args
+    return parse_args(argv)
+
+
+def execute_application_startup(log_level: str) -> None:
+    """Execute complete application startup sequence."""
+    runner = ApplicationRunner()
+    runner.initialize_environment(log_level)
+    runner.create_application()
+    runner.run_application()
+
+
+def handle_application_error(error: Exception) -> int:
+    """Handle application errors with appropriate logging and exit codes."""
+    error_message = f"Application failed: {error}"
+    
+    try:
+        logger.error(error_message)
+    except:
+        print(error_message, file=sys.stderr)
+    
+    return ERROR_EXIT_CODE
+
+
+def handle_user_interruption() -> int:
+    """Handle user interruption gracefully."""
+    message = "Application terminated by user request"
+    
+    try:
+        logger.info(message)
+    except:
+        print(message, file=sys.stderr)
+    
+    return SUCCESS_EXIT_CODE
 
 
 def main(argv: Optional[List[str]] = None) -> int:
     """
-    Main application entry point with Working Services Framework support.
+    InfiniteJournal application entry point.
     
-    This version handles proper service initialization and provides working drawing functionality.
+    Provides clean startup with Universal Services Framework support
+    and graceful error handling.
     """
     try:
-        # Parse command line arguments
-        args = parse_args(argv)
-        
-        # Initialize environment
-        settings = initialize_application_environment(args.log_level or 'INFO')
-        
-        # Run application
-        run_application(settings)
-        
+        args = parse_command_line_arguments(argv)
+        log_level = args.log_level or 'INFO'
+        execute_application_startup(log_level)
         return SUCCESS_EXIT_CODE
-        
-    except ApplicationStartupError as startup_error:
-        # Log startup errors
-        try:
-            logger.error(f"Application startup failed: {startup_error}")
-        except:
-            print(f"Application startup failed: {startup_error}", file=sys.stderr)
-        return STARTUP_ERROR_EXIT_CODE
         
     except KeyboardInterrupt:
-        try:
-            logger.info("Application terminated by user request")
-        except:
-            print("Application terminated by user request", file=sys.stderr)
-        return SUCCESS_EXIT_CODE
-        
-    except Exception as unexpected_error:
-        try:
-            logger.exception("Unexpected error in main application execution")
-        except:
-            print(f"Unexpected application error: {unexpected_error}", file=sys.stderr)
-        return APPLICATION_ERROR_EXIT_CODE
+        return handle_user_interruption()
+    
+    except Exception as error:
+        return handle_application_error(error)
 
 
 if __name__ == '__main__':

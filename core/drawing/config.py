@@ -1,20 +1,13 @@
-"""Configuration validation for drawing module."""
+# core/drawing/config.py (OPTIMIZED)
+"""Configuration validation for drawing module - OPTIMIZED."""
 
 import os
 from pathlib import Path
 
-
 def validate_file_path(file_path: Path) -> None:
-    """Validate that the target file’s directory exists and is writable.
-
-    Args:
-        file_path: Path to the file to be written.
-
-    Raises:
-        ValueError: If the directory does not exist, is not a directory,
-            or is not writable.
-    """
+    """Validate file path - optimized with early returns."""
     directory = file_path.parent
+    
     if not directory.exists():
         raise ValueError(f"Directory does not exist: {directory}")
     if not directory.is_dir():
