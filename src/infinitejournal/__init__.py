@@ -8,8 +8,8 @@ __author__ = "Your Name"
 # src/infinitejournal/backends/__init__.py
 """Rendering backends for Infinite Journal."""
 
-from infinitejournal.backends.base import Backend
-from infinitejournal.backends.opengl import OpenGLBackend
+from infinitejournal.backends.opengl.backend import Backend
+from infinitejournal.backends.opengl.backend import OpenGLBackend
 
 __all__ = ["Backend", "OpenGLBackend"]
 

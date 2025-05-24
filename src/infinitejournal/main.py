@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from infinitejournal.config import Config
-from infinitejournal.backends.opengl import OpenGLBackend
+from infinitejournal.backends.opengl.backend import OpenGLBackend
 from infinitejournal.interface.framework import Application
 from infinitejournal.utilities.logging import setup_logging
 
